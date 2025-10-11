@@ -24,10 +24,19 @@ import {
   Grid,
   Chip,
 } from "@mui/material";
-import { Edit as EditIcon, Delete as DeleteIcon } from "@mui/icons-material";
+import { Edit as EditIcon, Delete as DeleteIcon, Rule as RuleIcon } from "@mui/icons-material";
 import { useDeleteStudentMutation } from "../../../store";
 
-function StudentList({ students, isLoading, isError, onEdit, levelFilter }) {
+function StudentList({
+  students,
+  isLoading,
+  isError,
+  onEdit,
+  onEditStanding = () => {},
+  onViewDetails = () => {},
+  levelFilter,
+  statusFilter,
+}) {
   const [deleteStudent, { isLoading: isDeleting }] = useDeleteStudentMutation();
   const [openConfirm, setOpenConfirm] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState(null);
@@ -44,7 +53,26 @@ function StudentList({ students, isLoading, isError, onEdit, levelFilter }) {
 
     // Apply level filter if provided
     if (levelFilter) {
-      result = result.filter((student) => student.level === levelFilter);
+      result = result.filter((student) => {
+        const normalized = String(student.level || "")
+          .trim()
+          .replace(/l$/i, "");
+        return normalized === levelFilter;
+      });
+
+      if (levelFilter === "400") {
+        result = result.filter((student) => {
+          const status = String(student.status || "").toLowerCase();
+          return status !== "graduated" && status !== "extrayear";
+        });
+      }
+    }
+
+    if (statusFilter) {
+      const normalizedStatus = statusFilter.toLowerCase();
+      result = result.filter(
+        (student) => String(student.status || "").toLowerCase() === normalizedStatus
+      );
     }
 
     // Apply search filter if search term exists
@@ -55,12 +83,13 @@ function StudentList({ students, isLoading, isError, onEdit, levelFilter }) {
           student.regNo.toLowerCase().includes(term) ||
           student.firstname.toLowerCase().includes(term) ||
           student.surname.toLowerCase().includes(term) ||
-          (student.status && student.status.toLowerCase().includes(term))
+          (student.status && student.status.toLowerCase().includes(term)) ||
+          (student.standing && student.standing.toLowerCase().includes(term))
       );
     }
 
     return result;
-  }, [students, levelFilter, searchTerm]);
+  }, [students, levelFilter, statusFilter, searchTerm]);
 
   const handleChangePage = (event, newPage) => {
     setPage(newPage);
@@ -107,7 +136,7 @@ function StudentList({ students, isLoading, isError, onEdit, levelFilter }) {
     switch (status?.toLowerCase()) {
       case 'graduated':
         return 'success';
-      case 'extraYear':
+      case 'extrayear':
         return 'error';
       case 'undergraduate':
         return 'warning';
@@ -115,6 +144,48 @@ function StudentList({ students, isLoading, isError, onEdit, levelFilter }) {
         return 'default';
     }
   };
+
+  const getStandingColor = (standing) => {
+    switch (standing) {
+      case "goodstanding":
+        return "success";
+      case "deferred":
+        return "warning";
+      case "withdrawn":
+        return "error";
+      case "readmitted":
+        return "info";
+      default:
+        return "default";
+    }
+  };
+
+  const formatStandingLabel = (standing) => {
+    switch (standing) {
+      case "deferred":
+        return "Deferred";
+      case "withdrawn":
+        return "Withdrawn";
+      case "readmitted":
+        return "Readmitted";
+      case "goodstanding":
+      default:
+        return "Good Standing";
+    }
+  };
+
+  const headingText = (() => {
+    if (statusFilter === "graduated") {
+      return "Graduated Students";
+    }
+    if (statusFilter === "extrayear") {
+      return "Extra Year Students";
+    }
+    if (levelFilter) {
+      return `${levelFilter} Level Student List`;
+    }
+    return "All Students";
+  })();
 
   if (isLoading) {
     return (
@@ -145,6 +216,8 @@ function StudentList({ students, isLoading, isError, onEdit, levelFilter }) {
             ? "No students match your search criteria. Try a different search or clear the search to see all students."
             : levelFilter
             ? `There are no students in ${levelFilter} level.`
+            : statusFilter
+            ? `There are no students with status ${statusFilter.toUpperCase()}.`
             : "There are currently no student profiles in the system."}
         </Typography>
         {hasSearchTerm && (
@@ -161,14 +234,14 @@ function StudentList({ students, isLoading, isError, onEdit, levelFilter }) {
       <Grid container spacing={2} alignItems="center" sx={{ mb: 3 }}>
         <Grid item xs={12} md={6}>
           <Typography variant="h5" component="h2" gutterBottom fontWeight="bold">
-            {levelFilter ? `${levelFilter} Level Student List` : "All Students"}
+            {headingText}
           </Typography>
         </Grid>
         <Grid item xs={12} md={6}>
           <TextField
             fullWidth
             variant="outlined"
-            label="Search by Reg No, Firstname, Surname or Status"
+            label="Search by Reg No, Name, Status or Standing"
             value={searchTerm}
             onChange={handleSearchChange}
             size="small"
@@ -196,41 +269,88 @@ function StudentList({ students, isLoading, isError, onEdit, levelFilter }) {
               <TableCell>Registration No.</TableCell>
               <TableCell>Level</TableCell>
               <TableCell>Status</TableCell>
+              <TableCell>Standing</TableCell>
               <TableCell align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {filteredStudents
               .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-              .map((student, index) => (
-                <TableRow key={student._id} sx={{ "&:last-child td, &:last-child th": { border: 0 } }}>
+              .map((student, index) => {
+                const standingValue = student.standing || "goodstanding";
+                const levelDisplay = String(student.level || "")
+                  .trim()
+                  .replace(/l$/i, "");
+                return (
+                <TableRow
+                    key={student._id}
+                    onClick={() => onViewDetails(student)}
+                    hover
+                    sx={{
+                      "&:last-child td, &:last-child th": { border: 0 },
+                      cursor: "pointer",
+                    }}
+                  >
                   <TableCell>{page * rowsPerPage + index + 1}</TableCell>
                   <TableCell component="th" scope="row">
                     {`${student.surname} ${student.firstname} ${student.middlename || ""}`.trim()}
                   </TableCell>
                   <TableCell>{student.regNo}</TableCell>
-                  <TableCell>{student.level}</TableCell>
+                  <TableCell>{levelDisplay}</TableCell>
                   <TableCell>
                     <Chip 
-                      label={student.status.toUpperCase() || 'Unknown'} 
+                      label={(student.status || 'Unknown').toUpperCase()} 
                       color={getStatusColor(student.status)}
                       size="small"
                     />
                   </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={formatStandingLabel(standingValue)}
+                      color={getStandingColor(standingValue)}
+                      size="small"
+                      variant="outlined"
+                    />
+                  </TableCell>
                   <TableCell align="right">
+                    <Tooltip title="Edit Standing">
+                      <IconButton
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onEditStanding(student);
+                        }}
+                        color="secondary"
+                      >
+                        <RuleIcon />
+                      </IconButton>
+                    </Tooltip>
                     <Tooltip title="Edit Student">
-                      <IconButton onClick={() => onEdit(student)} color="primary">
+                      <IconButton
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onEdit(student);
+                        }}
+                        color="primary"
+                      >
                         <EditIcon />
                       </IconButton>
                     </Tooltip>
                     <Tooltip title="Delete Student">
-                      <IconButton onClick={() => handleDeleteClick(student)} color="error" disabled={isDeleting && studentToDelete?._id === student._id}>
+                      <IconButton
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleDeleteClick(student);
+                        }}
+                        color="error"
+                        disabled={isDeleting && studentToDelete?._id === student._id}
+                      >
                         {isDeleting && studentToDelete?._id === student._id ? <CircularProgress size={20} /> : <DeleteIcon />}
                       </IconButton>
                     </Tooltip>
                   </TableCell>
                 </TableRow>
-              ))}
+              );
+            })}
           </TableBody>
         </Table>
         <TablePagination

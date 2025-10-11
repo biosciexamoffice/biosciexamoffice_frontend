@@ -252,32 +252,26 @@ const SearchResults = () => {
   const handleSaveMetrics = async () => {
     if (!rowToEdit || !editedMetrics) return;
     try {
-      // From academicMetricsApi.js, the mutation needs a 'metricsId' for the URL.
-      // From academicMetricsController.js, the backend updates the document found by that ID
-      // with the data provided in the request body.
+      // The metrics ID is nested under `row.metrics._id` in the data from `searchMetrics`.
       const metricsId = rowToEdit.metrics?._id;
       if (!metricsId) {
         console.error("Could not find the AcademicMetrics document ID to update.");
         return;
       }
 
-      // The 'editedMetrics' state is nested for UI convenience. We must flatten it
-      // to match the backend's AcademicMetrics model schema before sending.
-      const { _id, ...cumulativeMetrics } = editedMetrics.metrics; // Exclude _id from cumulative
+      // Reverting to the original implementation that had persistence issues.
+      const { _id, ...cumulativeMetrics } = editedMetrics.metrics;
       const updateData = {
-        previousMetrics: editedMetrics.previousMetrics, // This is an object on the model
-        ...editedMetrics.currentMetrics, // Spread TCC, TCE, TPE, GPA as top-level fields
-        ...cumulativeMetrics, // Spread CCC, CCE, CPE, CGPA as top-level fields
+        previousMetrics: editedMetrics.previousMetrics,
+        ...editedMetrics.currentMetrics,
+        ...cumulativeMetrics,
       };
 
-      // The RTK query hook separates 'metricsId' for the URL param
-      // and the rest of the properties become the body.
       const payload = {
         metricsId,
         ...updateData,
       };
 
-      console.log('Attempting to update metrics with payload:', payload);
       await updateMetrics(payload).unwrap();
       handleEditDialogClose();
       runSearch(normalizedFilters); // Refresh data

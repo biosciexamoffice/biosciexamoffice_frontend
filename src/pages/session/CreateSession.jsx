@@ -23,8 +23,12 @@ import {
   Tab
 } from '@mui/material';
 import { LoadingButton } from '@mui/lab';
-import { useCreateSessionMutation, useGetAllLecturersQuery, useGetSessionsQuery } from '../../store';
-import { format } from 'date-fns';
+import {
+  useCreateSessionMutation,
+  useCloseSessionMutation,
+  useGetAllLecturersQuery,
+  useGetSessionsQuery,
+} from '../../store';
 import SessionDetails from './SessionDetails';
 import SessionList from './SessionList';
 
@@ -58,6 +62,7 @@ const SessionManager = () => {
   const [activeTab, setActiveTab] = useState(0);
   
   const [createSession, { isLoading }] = useCreateSessionMutation();
+  const [closeSession, { isLoading: isClosingSession }] = useCloseSessionMutation();
   const { data: lecturersData = [], isLoading: isLecturersLoading } = useGetAllLecturersQuery();
   const { data: sessions = [], isLoading: isSessionsLoading, refetch: refetchSessions } = useGetSessionsQuery();
 
@@ -145,6 +150,34 @@ const SessionManager = () => {
     }
   };
 
+  const handleCloseSession = async ({ sessionId, payload }) => {
+    if (!sessionId) return false;
+    try {
+      const response = await closeSession({ id: sessionId, payload }).unwrap();
+      if (!response.success) {
+        throw new Error(response.message || "Failed to close session");
+      }
+      setCreatedSession(response.session);
+      setSnack({
+        open: true,
+        message: response.message || "Session closed successfully.",
+        severity: "success",
+      });
+      refetchSessions();
+      return true;
+    } catch (error) {
+      setSnack({
+        open: true,
+        message:
+          error.data?.message ||
+          error.message ||
+          "Error closing session. Please try again.",
+        severity: "error",
+      });
+      return false;
+    }
+  };
+
   const handleCloseSnackbar = () => setSnack(prev => ({ ...prev, open: false }));
 
   const handleReset = () => {
@@ -173,7 +206,7 @@ const SessionManager = () => {
                 Create New Academic Session
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                This will create a new session and automatically progress students
+                Create a new academic year and assign the principal officers. Student promotion runs when you end the active session.
               </Typography>
               
               <form onSubmit={handleSubmit}>
@@ -327,10 +360,12 @@ const SessionManager = () => {
               </form>
             </>
           ) : (
-            <SessionDetails 
-              session={createdSession} 
+            <SessionDetails
+              session={createdSession}
               onBack={() => setViewMode('form')}
               onCreateAnother={handleReset}
+              onCloseSession={handleCloseSession}
+              isClosing={isClosingSession}
             />
           )}
         </Paper>

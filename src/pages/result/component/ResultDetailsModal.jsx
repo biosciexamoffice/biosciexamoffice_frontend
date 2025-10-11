@@ -18,8 +18,13 @@ import {
 import { Close as CloseIcon } from "@mui/icons-material";
 
 function ResultDetailsModal({ result, open, onClose }) {
-  console.log(result)
   if (!result) return null;
+
+  const status = result.moderationStatus
+    ? result.moderationStatus
+    : (result.moderated ? 'approved' : 'none');
+  const isPending = status === 'pending';
+  const isApproved = status === 'approved';
 
   const scores = [
     { name: 'Question 1', value: result.q1 ?? 'N/A' },
@@ -52,6 +57,44 @@ function ResultDetailsModal({ result, open, onClose }) {
             <strong>Course:</strong> {result.course?.code} - {result.course?.title}
           </Typography>
         </Box>
+        {status !== 'none' && (
+          <Box sx={{ pb: 2 }}>
+            <Typography
+              variant="subtitle1"
+              color={isPending ? "warning.main" : "error"}
+              gutterBottom
+            >
+              Moderation Details
+            </Typography>
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              <strong>Status:</strong> {isPending ? "Pending Approval" : "Approved"}
+            </Typography>
+            {isPending && (
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                <strong>Pending Grand Total:</strong> {result.moderationPendingGrandtotal ?? 'N/A'}
+              </Typography>
+            )}
+            {result.moderationOriginalGrandtotal !== undefined && result.moderationOriginalGrandtotal !== null && (
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                <strong>Original Grand Total:</strong> {result.moderationOriginalGrandtotal}
+              </Typography>
+            )}
+            {isApproved && (
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                <strong>Approved On:</strong>{" "}
+                {result.moderationApprovedAt
+                  ? new Date(result.moderationApprovedAt).toLocaleString()
+                  : 'N/A'}
+              </Typography>
+            )}
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              <strong>Authorized PF No:</strong> {result.moderationAuthorizedPfNo || 'N/A'}
+            </Typography>
+            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+              <strong>Proof:</strong> {result.moderationProof || 'N/A'}
+            </Typography>
+          </Box>
+        )}
         <TableContainer component={Paper}>
           <Table size="small">
             <TableHead>

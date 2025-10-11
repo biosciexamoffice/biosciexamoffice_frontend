@@ -10,10 +10,12 @@ import {
 } from "@mui/material";
 import PeopleIcon from "@mui/icons-material/People";
 import SchoolIcon from "@mui/icons-material/School";
+import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
+import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 
 const levels = ["100", "200", "300", "400"];
 
-function DashboardSummary({ summaryData, onLevelSelect, isLoading }) {
+function DashboardSummary({ summaryData, onLevelSelect, onStatusSelect = () => {}, isLoading }) {
   if (isLoading) {
     return (
       <Box sx={{ display: "flex", justifyContent: "center", mt: 4 }}>
@@ -44,12 +46,54 @@ function DashboardSummary({ summaryData, onLevelSelect, isLoading }) {
       <Grid container spacing={3}>
         <Grid item xs={12} sm={6} md={3}>
           <Card elevation={2} sx={{ height: '100%' }}>
-            <CardActionArea onClick={() => onLevelSelect(null)} sx={{ height: '100%', p: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+            <CardActionArea
+              onClick={() => {
+                onLevelSelect(null);
+                onStatusSelect(null);
+              }}
+              sx={{ height: '100%', p: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}
+            >
               <PeopleIcon sx={{ fontSize: 40, color: "primary.main", mb: 1 }} />
               <Typography variant="h4" component="div" fontWeight="bold">
                 {summaryData?.total || 0}
               </Typography>
               <Typography color="text.secondary">Total Students</Typography>
+            </CardActionArea>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12} sm={6} md={3}>
+          <Card elevation={2} sx={{ height: "100%" }}>
+            <CardActionArea
+              onClick={() => {
+                onLevelSelect(null);
+                onStatusSelect("graduated");
+              }}
+              sx={{ height: "100%", p: 2, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}
+            >
+              <EmojiEventsIcon sx={{ fontSize: 36, color: "success.main", mb: 1 }} />
+              <Typography variant="h4" component="div" fontWeight="bold">
+                {summaryData?.graduated || 0}
+              </Typography>
+              <Typography color="text.secondary">Graduated</Typography>
+            </CardActionArea>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12} sm={6} md={3}>
+          <Card elevation={2} sx={{ height: "100%" }}>
+            <CardActionArea
+              onClick={() => {
+                onLevelSelect(null);
+                onStatusSelect("extrayear");
+              }}
+              sx={{ height: "100%", p: 2, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}
+            >
+              <WarningAmberIcon sx={{ fontSize: 36, color: "warning.main", mb: 1 }} />
+              <Typography variant="h4" component="div" fontWeight="bold">
+                {summaryData?.extraYear || 0}
+              </Typography>
+              <Typography color="text.secondary">Extra Year</Typography>
             </CardActionArea>
           </Card>
         </Grid>

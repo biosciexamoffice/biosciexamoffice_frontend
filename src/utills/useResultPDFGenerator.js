@@ -78,6 +78,35 @@ const useResultPDFGenerator = () => {
     const tableTopY = 60;
     const tableBottomPadding = 45;
 
+    const drawWatermark = () => {
+      const watermarkText = data?.watermarkText || 'DRAFT'
+      if (!watermarkText) return;
+
+      const supportsGraphicsState =
+        typeof doc.saveGraphicsState === 'function' &&
+        typeof doc.restoreGraphicsState === 'function';
+
+      if (supportsGraphicsState) doc.saveGraphicsState();
+      doc.setFont('times', 'bold');
+      doc.setFontSize(120);
+      try {
+        doc.setTextColor(0, 0, 0, 0.15)
+      } catch {
+        doc.setTextColor(200, 200, 200);
+      }
+
+      doc.text(watermarkText, pageWidth / 1.5, pageHeight / 1.5, {
+        angle: 45,
+        align: 'center',
+        baseline: 'middle',
+      });
+
+      if (supportsGraphicsState) {
+        doc.restoreGraphicsState();
+      }
+      doc.setTextColor(0, 0, 0);
+    };
+
     const drawMetaBlock = (pairs, labelX, valueX, startY, lineGap = 7) => {
       doc.setFont('times', 'normal');
       pairs.forEach(([label, value], i) => {
@@ -87,75 +116,78 @@ const useResultPDFGenerator = () => {
       });
     };
 
+    // Draw header, footer, and border for the current page only
     const drawHeaderFooter = () => {
-      const pageCount = doc.internal.getNumberOfPages();
-      for (let i = 1; i <= pageCount; i++) {
-        doc.setPage(i);
+      doc.setTextColor(0, 0, 0);
+      // ===== Outer Border (every page) =====
+      const borderInset = 5; // adjust for tighter/looser frame
+      doc.setDrawColor(0, 0, 0);
+      doc.setLineWidth(0.6);
+      doc.rect(borderInset, borderInset, pageWidth - 2 * borderInset, pageHeight - 2 * borderInset);
 
-        // ===== Title + Logo =====
-        doc.setFontSize(12);
-        doc.setFont('times', 'bold');
-        doc.text('JOSEPH SARWUAN TARKA UNIVERSITY, P. M. B. 2373, MAKURDI', pageWidth / 2, 15, { align: 'center' });
+      // ===== Title + Logo =====
+      doc.setFontSize(12);
+      doc.setFont('times', 'bold');
+      doc.text('JOSEPH SARWUAN TARKA UNIVERSITY, P. M. B. 2373, MAKURDI', pageWidth / 2, 15, { align: 'center' });
 
-        const logoWidth = 15;
-        const logoHeight = 15;
-        const logoX = (pageWidth - logoWidth) / 2;
-        const logoY = 18;
-        doc.addImage(logoBase64, 'JPEG', logoX, logoY, logoWidth, logoHeight);
+      const logoWidth = 15;
+      const logoHeight = 15;
+      const logoX = (pageWidth - logoWidth) / 2;
+      const logoY = 18;
+      doc.addImage(logoBase64, 'JPEG', logoX, logoY, logoWidth, logoHeight);
 
-        doc.text('EXAMINATION RESULT SHEET', pageWidth / 2, 38, { align: 'center' });
+      doc.text('EXAMINATION RESULT SHEET', pageWidth / 2, 38, { align: 'center' });
 
-        // ===== HEADER META =====
-        doc.setFontSize(9);
-        doc.setFont('times', 'normal');
+      // ===== HEADER META =====
+      doc.setFontSize(9);
+      doc.setFont('times', 'normal');
 
-        const metaStartY = 45;
-        const metaGap = 7;
+      const metaStartY = 45;
+      const metaGap = 7;
 
-        const leftLabelX = leftMargin;
-        const leftValueX = leftLabelX + 28;
-        drawMetaBlock(
-          [
-            ['College:', data?.college || 'Biological Sciences'],
-            ['Department:', data?.department || 'Biochemistry'],
-            ['Programme:', data?.programme || 'B. Sc. Biochemistry']
-          ],
-          leftLabelX,
-          leftValueX,
-          metaStartY,
-          metaGap
-        );
+      const leftLabelX = leftMargin;
+      const leftValueX = leftLabelX + 28;
+      drawMetaBlock(
+        [
+          ['College:', data?.college || 'Biological Sciences'],
+          ['Department:', data?.department || 'Biochemistry'],
+          ['Programme:', data?.programme || 'B. Sc. Biochemistry']
+        ],
+        leftLabelX,
+        leftValueX,
+        metaStartY,
+        metaGap
+      );
 
-        const rightLabelX = pageWidth / 2 + 105;
-        const rightValueX = rightLabelX + 20;
-        drawMetaBlock(
-          [
-            ['Level:', formData?.level],
-            ['Semester:', formData?.semester === 1 ? 'First' : 'Second'],
-            ['Session:', formData?.session]
-          ],
-          rightLabelX,
-          rightValueX,
-          metaStartY,
-          metaGap
-        );
+      const rightLabelX = pageWidth / 2 + 105; // keep header meta where it was
+      const rightValueX = rightLabelX + 20;
+      drawMetaBlock(
+        [
+          ['Level:', formData?.level],
+          ['Semester:', formData?.semester === 1 ? 'First' : 'Second'],
+          ['Session:', formData?.session]
+        ],
+        rightLabelX,
+        rightValueX,
+        metaStartY,
+        metaGap
+      );
 
-        // ===== FOOTER =====
-        const footerStartY = pageHeight - 40;
-        const footerGap = 14;
+      // ===== FOOTER =====
+      const footerStartY = pageHeight - 40;
+      const footerGap = 14;
 
-        const leftFooterX = leftMargin;
-        const rightFooterX = rightLabelX;
+      const leftFooterX = leftMargin;
+      // Shift the right-hand footer block ("Head of Dept" and "Dean") a bit left
+      const rightFooterX = (pageWidth / 2 + 105) - 10; // moved 10mm left; adjust if needed
 
-        doc.text(`Dept. Exam. Officer: ${data?.deptExamOfficer || 'MR. I. Y. JOEL'}`, leftFooterX, footerStartY);
-        doc.text(`College Exam. Officer: ${data?.collegeExamOfficer || 'MR. O. A. OJOBO'}`, leftFooterX, footerStartY + footerGap);
+      doc.text(`Dept. Exam. Officer: ${data?.deptExamOfficer || 'MR. I. Y. JOEL'}`, leftFooterX, footerStartY);
+      doc.text(`College Exam. Officer: ${data?.collegeExamOfficer || 'MR. O. A. OJOBO'}`, leftFooterX, footerStartY + footerGap);
 
-        doc.text(`Head of Dept: ${data?.headOfDept || 'DR. (MRS.) T. AKANDE'}`, rightFooterX, footerStartY);
-        doc.text(`Dean: ${data?.dean || 'PROF. C. U. AGUORU'}`, rightFooterX, footerStartY + footerGap);
+      doc.text(`Head of Dept: ${data?.headOfDept || 'DR. (MRS.) T. AKANDE'}`, rightFooterX, footerStartY);
+      doc.text(`Dean: ${data?.dean || 'PROF. C. U. AGUORU'}`, rightFooterX, footerStartY + footerGap);
 
-        doc.setFontSize(9);
-        doc.text(`${i}`, pageWidth / 2, footerStartY + footerGap * 2 + 2, { align: 'center' });
-      }
+      // Page numbering intentionally removed
     };
 
     // ——— row builder with "00F when registered but no result" for BOTH regular & carry-over courses
@@ -197,17 +229,27 @@ const useResultPDFGenerator = () => {
 
         const nameFormatted = formatName(student.fullName || '');
 
-        // Build the row: Profile cols + each regular course cell mirrors UI: result ⇒ score+grade; registered-no-result ⇒ 00F; else NR
+        // Build the row: result ⇒ score+grade; registered-no-result ⇒ 00F;
+        // Not registered:
+        //   - If elective (option === 'E') ⇒ '-' (hyphen)
+        //   - Else (core) ⇒ 'NR'
         const regularCells = (regularCourses || []).map(course => {
-          const result = getCourseResult(student, course);
+          const regSet = regSetsByCourseId?.[course.id];
+          const isRegistered = regSet?.has(regUpper);
+          const result = isRegistered ? getCourseResult(student, course) : null;
+          const isElective = String(course?.option || '').toUpperCase() === 'E';
+
+          if (!isRegistered) {
+            return isElective ? '-' : 'NR';
+          }
+
           if (result) {
             const score = pad2(result.grandtotal || 0);
             const grade = result.grade ?? gradeFromScore(result.grandtotal);
             return `${score}${grade}`;
           }
-          const regSet = regSetsByCourseId?.[course.id];
-          const isRegistered = regSet?.has(regUpper);
-          return isRegistered ? '00F' : 'NR';
+
+          return '00F';
         });
 
         return [
@@ -232,7 +274,7 @@ const useResultPDFGenerator = () => {
       });
     };
 
-    // ——— headers
+    // ——— headers (unchanged layout)
     const profileCols = ['S/No.', 'Reg. Number/Name'];
     const courseCols = (regularCourses || []).map(course => {
       const code = cleanCourseCode(course.code);
@@ -317,7 +359,11 @@ const useResultPDFGenerator = () => {
       bodyStyles: { pageBreak: 'avoid', fontStyle: 'normal', textColor: [0, 0, 0] },
       rowPageBreak: 'avoid',
       columnStyles,
+      willDrawPage: () => {
+        drawWatermark();
+      },
       didDrawPage: () => {
+        // Draw for the current page only (header, footer, border)
         drawHeaderFooter();
       }
     });

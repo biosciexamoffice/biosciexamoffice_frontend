@@ -8,6 +8,9 @@ import StudentList from "./component/StudentList";
 import EditStudent from "./component/EditStudent";
 import DashboardSummary from "./component/ui/DashboardSummary";
 import StudentUploader from "./component/StudentUploader";
+import StandingManager from "./component/StandingManager";
+import StandingDialog from "./component/StandingDialog";
+import StudentDetailsDialog from "./component/StudentDetailsDialog";
 
 import {
   Box,
@@ -24,6 +27,8 @@ import {
   AppBar,
   CssBaseline,
   Badge,
+  Snackbar,
+  Alert,
 } from "@mui/material";
 import {
   Dashboard as DashboardIcon,
@@ -32,6 +37,7 @@ import {
   Menu as MenuIcon,
   School as SchoolIcon,
   CloudUpload as CloudUploadIcon,
+  Rule as RuleIcon,
 } from "@mui/icons-material";
 
 const drawerWidth = 240;
@@ -43,7 +49,13 @@ function Student() {
   const [view, setView] = useState("dashboard");
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [levelFilter, setLevelFilter] = useState(null);
+  const [statusFilter, setStatusFilter] = useState(null);
   const [selectedStudent, setSelectedStudent] = useState(null);
+  const [isStandingDialogOpen, setIsStandingDialogOpen] = useState(false);
+  const [standingStudent, setStandingStudent] = useState(null);
+  const [standingFeedback, setStandingFeedback] = useState("");
+  const [detailsStudent, setDetailsStudent] = useState(null);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
 
   const [createStudent, { isLoading: isCreating, error: createError }] =
     useCreateStudentMutation();
@@ -61,24 +73,79 @@ function Student() {
   }, [view, refetchStudents]);
 
   const levelCounts = useMemo(() => {
-    if (!allStudents) return {};
-    const counts = { '100': 0, '200': 0, '300': 0, '400': 0, total: allStudents.length };
-    allStudents.forEach(student => {
-      if (counts[student.level] !== undefined) {
-        counts[student.level]++;
+    if (!allStudents) {
+      return {};
+    }
+
+    const counts = {
+      "100": 0,
+      "200": 0,
+      "300": 0,
+      "400": 0,
+      total: allStudents.length,
+      graduated: 0,
+      extraYear: 0,
+    };
+
+    allStudents.forEach((student) => {
+      const rawLevel = String(student.level || "").trim();
+      const normalizedLevel = rawLevel.replace(/l$/i, "");
+      const status = String(student.status || "").toLowerCase();
+
+      if (status === "graduated") {
+        counts.graduated += 1;
+      } else if (status === "extrayear") {
+        counts.extraYear += 1;
+      }
+
+      if (counts[normalizedLevel] !== undefined) {
+        if (
+          normalizedLevel === "400" &&
+          (status === "graduated" || status === "extrayear")
+        ) {
+          return;
+        }
+        counts[normalizedLevel] += 1;
       }
     });
+
     return counts;
   }, [allStudents]);
 
   const handleCreateStudent = async (inputs) => {
     await createStudent(inputs).unwrap();
+    setLevelFilter(null);
+    setStatusFilter(null);
     setView("list");
   };
 
   const handleEditClick = (student) => {
     setSelectedStudent(student);
     setIsEditModalOpen(true);
+  };
+
+  const handleStandingEditClick = (student) => {
+    setStandingStudent(student);
+    setIsStandingDialogOpen(true);
+  };
+
+  const handleViewDetails = (student) => {
+    setDetailsStudent(student);
+    setIsDetailsOpen(true);
+  };
+
+  const handleCloseStandingDialog = (updated) => {
+    setIsStandingDialogOpen(false);
+    if (updated) {
+      setStandingFeedback("Standing updated successfully.");
+      refetchStudents();
+    }
+    setStandingStudent(null);
+  };
+
+  const handleCloseDetails = () => {
+    setIsDetailsOpen(false);
+    setDetailsStudent(null);
   };
 
   const handleCloseEditModal = () => {
@@ -92,6 +159,14 @@ function Student() {
 
   const handleLevelSelect = (level) => {
     setLevelFilter(level);
+    setStatusFilter(null);
+    setView('list');
+  };
+
+  const handleStatusSelect = (status) => {
+    const normalized = status ? status.toLowerCase() : null;
+    setStatusFilter(normalized);
+    setLevelFilter(null);
     setView('list');
   };
 
@@ -104,7 +179,10 @@ function Student() {
             isLoading={loadingAllStudents}
             isError={errorAllStudents}
             onEdit={handleEditClick}
+            onEditStanding={handleStandingEditClick}
+            onViewDetails={handleViewDetails}
             levelFilter={levelFilter}
+            statusFilter={statusFilter}
           />
         );
       case "create":
@@ -117,6 +195,8 @@ function Student() {
         );
       case "upload":
         return <StudentUploader />;
+      case "standing":
+        return <StandingManager />;
       case "dashboard":
       default:
         return (
@@ -124,6 +204,7 @@ function Student() {
             summaryData={levelCounts}
             isLoading={loadingAllStudents}
             onLevelSelect={handleLevelSelect}
+            onStatusSelect={handleStatusSelect}
           />
         );
     }
@@ -139,6 +220,7 @@ function Student() {
         {[
           { text: 'Dashboard', icon: <DashboardIcon />, view: 'dashboard' },
           { text: 'Student List', icon: <Badge badgeContent={allStudents?.length} color="primary" max={999}><ListAltIcon /></Badge>, view: 'list' },
+          { text: 'Standing Manager', icon: <RuleIcon />, view: 'standing' },
           { text: 'Create Student', icon: <AddCircleOutlineIcon />, view: 'create' },
           { text: 'Bulk Upload', icon: <CloudUploadIcon />, view: 'upload' }
         ].map((item) => (
@@ -169,6 +251,30 @@ function Student() {
         {renderContent()}
       </Box>
       {selectedStudent && (<EditStudent student={selectedStudent} open={isEditModalOpen} onClose={handleCloseEditModal} />)}
+      {standingStudent && (
+        <StandingDialog
+          student={standingStudent}
+          open={isStandingDialogOpen}
+          onClose={handleCloseStandingDialog}
+        />
+      )}
+      {detailsStudent && (
+        <StudentDetailsDialog
+          studentId={detailsStudent._id}
+          open={isDetailsOpen}
+          onClose={handleCloseDetails}
+        />
+      )}
+      <Snackbar
+        open={Boolean(standingFeedback)}
+        autoHideDuration={4000}
+        onClose={() => setStandingFeedback("")}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert severity="success" onClose={() => setStandingFeedback("")} sx={{ width: "100%" }}>
+          {standingFeedback}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

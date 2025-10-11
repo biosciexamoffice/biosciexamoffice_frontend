@@ -96,19 +96,12 @@ const useGradeSummaryPDFGenerator = () => {
         { content: 'PERCENTAGE PASS', rowSpan: 2 }
       ],
       [
-        { content: '' }, // S/N
-        { content: '' }, // CODE
-        { content: '' }, // TITLE
-        { content: '' }, // UNIT
-        { content: '' }, // TOTAL REGISTERED
-        { content: '' }, // TOTAL EXAMINED
-        { content: 'A' },
-        { content: 'B' },
-        { content: 'C' },
-        { content: 'D' },
-        { content: 'E' },
-        { content: 'F' },
-        { content: '' }  // %
+        { content: 'A', styles: { halign: 'center' } },
+        { content: 'B', styles: { halign: 'center' } },
+        { content: 'C', styles: { halign: 'center' } },
+        { content: 'D', styles: { halign: 'center' } },
+        { content: 'E', styles: { halign: 'center' } },
+        { content: 'F', styles: { halign: 'center' } }
       ]
     ];
 
@@ -157,18 +150,18 @@ const useGradeSummaryPDFGenerator = () => {
       },
       columnStyles: {
         0:  { cellWidth: 8,  halign: 'center' }, // S/N
-        1:  { cellWidth: 35 },                   // CODE
-        2:  { cellWidth: 120 },                  // TITLE
-        3:  { cellWidth: 12, halign: 'center' },// UNIT
-        4:  { cellWidth: 35, halign: 'center' },// TOTAL REGISTERED
-        5:  { cellWidth: 25, halign: 'center' },// TOTAL EXAMINED
-        6:  { cellWidth: 10, halign: 'center' },// A
-        7:  { cellWidth: 10, halign: 'center' },// B
-        8:  { cellWidth: 10, halign: 'center' },// C
-        9:  { cellWidth: 10, halign: 'center' },// D
-        10: { cellWidth: 10, halign: 'center' },// E
-        11: { cellWidth: 10, halign: 'center' },// F
-        12: { cellWidth: 45, halign: 'center' } // %
+        1:  { cellWidth: 32 },                   // CODE
+        2:  { cellWidth: 110 },                  // TITLE
+        3:  { cellWidth: 12, halign: 'center' }, // UNIT
+        4:  { cellWidth: 30, halign: 'center' }, // TOTAL REGISTERED
+        5:  { cellWidth: 24, halign: 'center' }, // TOTAL EXAMINED
+        6:  { cellWidth: 9,  halign: 'center' }, // A
+        7:  { cellWidth: 9,  halign: 'center' }, // B
+        8:  { cellWidth: 9,  halign: 'center' }, // C
+        9:  { cellWidth: 9,  halign: 'center' }, // D
+        10: { cellWidth: 9,  halign: 'center' }, // E
+        11: { cellWidth: 9,  halign: 'center' }, // F
+        12: { cellWidth: 35, halign: 'center' }  // %
       },
       // Continuation pages should also keep the table below the metadata
       margin: { left: leftMargin, right: rightMargin, top: tableTopY, bottom: 15 },

@@ -23,6 +23,11 @@ const computeGrandTotal = (row = {}) => {
 const cleanCourseCode = (code = "") =>
   String(code).replace(/^[A-Z]-/, "").replace(/\s/g, "");
 
+const normalizeCourseCode = (code = "") =>
+  String(code).replace(/^[A-Z]-/, "").replace(/\s+/g, "").toUpperCase();
+
+const normalizeRegNo = (regNo = "") => String(regNo).trim().toUpperCase();
+
 const loadImageAsBase64 = async (url) => {
   try {
     const response = await fetch(url);
@@ -61,6 +66,39 @@ const useMissingScoresPDFGenerator = () => {
     const { session, semester, level } = formData || {};
     const { regularCourses = [], carryOverCourses = [] } = separateCourses || {};
     const includeCarryOvers = options.includeCarryOvers !== false; // default true
+    const registrationSetsRaw = options.registrationSets || {};
+    const hasRegistrationData =
+      registrationSetsRaw &&
+      typeof registrationSetsRaw === "object" &&
+      Object.keys(registrationSetsRaw).length > 0;
+
+    const getRegistrationSet = (courseId) => {
+      if (!hasRegistrationData) return null;
+      const entryKey = courseId ?? String(courseId ?? '');
+      const entry = registrationSetsRaw[entryKey] ?? registrationSetsRaw[String(entryKey)];
+      if (!entry) return null;
+      if (entry instanceof Set) return entry;
+      if (Array.isArray(entry)) {
+        const set = new Set(entry.map(normalizeRegNo));
+        registrationSetsRaw[entryKey] = set;
+        return set;
+      }
+      return null;
+    };
+
+    const findResultForCourse = (student, course) => {
+      const results = student?.results || {};
+      if (!course) return null;
+      const courseId = course.id ?? course._id ?? course.courseId;
+      if (courseId && results[courseId]) return results[courseId];
+      if (courseId && results[String(courseId)]) return results[String(courseId)];
+      const targetCode = normalizeCourseCode(course.code || course.courseCode);
+      if (!targetCode) return null;
+      return Object.values(results).find((value = {}) => {
+        const code = normalizeCourseCode(value.courseCode || value.code);
+        return code === targetCode;
+      }) || null;
+    };
 
     // Build the list of courses to check (regular + optionally carry-overs)
     const coursesToCheck = includeCarryOvers
@@ -71,9 +109,16 @@ const useMissingScoresPDFGenerator = () => {
     const rows = students
       .map((s) => {
         const missing = [];
+        const regUpper = normalizeRegNo(s.regNo);
 
         coursesToCheck.forEach((course) => {
-          const result = s.results?.[course.id];
+          const regSet = getRegistrationSet(course.id);
+          const isRegistered = regSet ? regSet.has(regUpper) : true; // fallback: assume registered if no data
+          if (!isRegistered) {
+            return;
+          }
+
+          const result = findResultForCourse(s, course);
 
           if (!result) {
             // No result recorded at all

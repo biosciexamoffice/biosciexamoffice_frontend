@@ -9,6 +9,7 @@ import { sessionApi } from "./api/sessionApi";
 import {approvedCoursesApi} from "./api/approvedCoursesApi"
 import { graduationApi } from "./api/graduationApi"
 import { courseRegistrationApi } from "./api/courseRegistrationApi";
+import { registrationFormsApi } from "./api/registrationFormsApi";
  
 const store = configureStore({
     reducer:{
@@ -20,7 +21,8 @@ const store = configureStore({
         [approvedCoursesApi.reducerPath] : approvedCoursesApi.reducer,
         [sessionApi.reducerPath]: sessionApi.reducer,
         [graduationApi.reducerPath]: graduationApi.reducer,
-        [courseRegistrationApi.reducerPath]: courseRegistrationApi.reducer
+        [courseRegistrationApi.reducerPath]: courseRegistrationApi.reducer,
+        [registrationFormsApi.reducerPath]: registrationFormsApi.reducer,
     
     },
 
@@ -35,6 +37,7 @@ const store = configureStore({
             .concat(sessionApi.middleware)
             .concat(graduationApi.middleware)
             .concat(courseRegistrationApi.middleware)
+            .concat(registrationFormsApi.middleware)
     }
 })
 
@@ -60,9 +63,17 @@ export {
 export {
   useCreateStudentMutation,
   useGetAllStudentsQuery,
+  useGetStudentByIdQuery,
+  useLazyGetStudentByIdQuery,
   useUpdateStudentMutation,
   useDeleteStudentMutation,
   useUploadStudentsMutation,
+  useSearchStudentByRegNoQuery,
+  useLazySearchStudentByRegNoQuery,
+  useUpdateStudentStandingMutation,
+  useUpdateStudentPassportMutation,
+  useDeleteStudentPassportMutation,
+  useGetStandingRecordsQuery,
 } from './api/studentApi'
 
 export {
@@ -77,7 +88,6 @@ export {
   useGetResultsByCourseQuery,
   useUploadResultsMutation,
   useDeleteMultipleResultsMutation,
-
   useListResultsExportQuery,
   useLazyListResultsExportQuery,
   useGetResultsExportHealthQuery,
@@ -86,13 +96,19 @@ export {
 
 export  {
   
-  useGetComprehensiveResultsQuery,
+   useGetComprehensiveResultsQuery,
   useLazyGetComprehensiveResultsQuery,
+
+  useComputeStudentMetricsQuery,          // if you need non-lazy
+  useLazyComputeStudentMetricsQuery,      // ✅ use this in UI
+
   useGetMetricsQuery,
   useDeleteMetricsMutation,
   useSearchMetricsQuery,
   useLazySearchMetricsQuery,
-  useUpdateMetricsMutation
+  useUpdateMetricsMutation,
+  useRecomputeAcademicMetricsMutation,
+   useUploadOldMetricsMutation,
 } from './api/academicMetricsApi'
 
 
@@ -107,6 +123,7 @@ export {
 
 export {
     useCreateSessionMutation,
+  useCloseSessionMutation,
   useGetSessionsQuery,
   useGetSessionByIdQuery,
   useGetCurrentSessionQuery
@@ -122,5 +139,16 @@ useGetGraduationAvailabilityQuery,
 export {
   useUploadCourseRegistrationsMutation,
   useSearchCourseRegistrationsQuery,
-  useLazySearchCourseRegistrationsQuery
+  useLazySearchCourseRegistrationsQuery,
+  useListRegistrationCoursesQuery,
+  useLazyListRegistrationCoursesQuery,
+  useGetRegistrationStudentsQuery,
+  useLazyGetRegistrationStudentsQuery,
+  useDeleteRegisteredStudentMutation,
+   useMoveRegisteredStudentsMutation,
 } from './api/courseRegistrationApi'
+
+export {
+  // ...existing exports
+  useGenerateRegistrationDataMutation,
+} from "./api/registrationFormsApi";

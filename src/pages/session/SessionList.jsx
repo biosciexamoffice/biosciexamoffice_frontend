@@ -47,8 +47,13 @@ const SessionList = ({ sessions, isLoading, onSessionSelect }) => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {sessions.map((session) => (
-                <TableRow key={session._id} hover>
+              {sessions.map((session) => {
+                const status =
+                  session.status ||
+                  (session.isCurrent ? "active" : "completed");
+                const isActive = status === "active";
+                return (
+                  <TableRow key={session.id || session._id} hover>
                   <TableCell>
                     <Typography variant="subtitle1">{session.sessionTitle}</Typography>
                   </TableCell>
@@ -60,11 +65,11 @@ const SessionList = ({ sessions, isLoading, onSessionSelect }) => {
                     </Box>
                   </TableCell>
                   <TableCell>
-                    {session.isCurrent ? (
-                      <Chip label="Current" color="success" size="small" />
-                    ) : (
-                      <Chip label="Past" color="default" size="small" />
-                    )}
+                    <Chip
+                      label={isActive ? "Active" : "Completed"}
+                      color={isActive ? "success" : "default"}
+                      size="small"
+                    />
                   </TableCell>
                   <TableCell align="right">
                     <Button 
@@ -75,8 +80,9 @@ const SessionList = ({ sessions, isLoading, onSessionSelect }) => {
                       View Details
                     </Button>
                   </TableCell>
-                </TableRow>
-              ))}
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </TableContainer>

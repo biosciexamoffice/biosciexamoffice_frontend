@@ -9,7 +9,9 @@ import CourseUpload from "./component/CourseUpload";
 import EditCourse from "./component/EditCourse";
 import DashboardSummary from "./component/ui/DashboardSummary";
 import CourseRegistrationUpload from "./component/CourseRegistrationUpload"
-import ApprovedCourses from "./component/ApprovedCourses"; // Add this import
+import ApprovedCourses from "./component/ApprovedCourses";
+import RegistrationFormGenerator from "./component/RegistrationFormGenerator";
+import RegistrationBrowser from "./component/RegistrationBrowser"
 
 import {
   Box,
@@ -109,6 +111,10 @@ function Course() {
         return <ApprovedCourses />;
       case "registration-upload":
         return <CourseRegistrationUpload />;
+      case "registrations":
+        return <RegistrationBrowser />;
+      case "Course Registration":
+        return <RegistrationFormGenerator />;
       case "dashboard":
       default:
         return (
@@ -144,7 +150,9 @@ function Course() {
           { text: 'Create Course', icon: <AddCircleOutlineIcon />, view: 'create' },
           { text: 'Upload Courses', icon: <CloudUploadIcon />, view: 'upload' },
           { text: 'Approved Courses', icon: <ApprovalIcon />, view: 'approved' }, // Add this menu item
-           { text: 'Course Registration', icon: <CloudUploadIcon />, view: 'registration-upload' },
+          { text: 'UAM Portal Registration', icon: <CloudUploadIcon />, view: 'registration-upload' },
+          { text: 'Registrations Browser', icon: <ListAltIcon />, view: 'registrations' },
+           { text: 'Dummy Form Generator', icon: <ListAltIcon />, view: 'Course Registration' },
         ].map((item) => (
           <ListItemButton 
             key={item.text} 

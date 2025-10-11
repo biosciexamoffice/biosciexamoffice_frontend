@@ -25,6 +25,9 @@ import {
   Search as SearchIcon,
   Clear as ClearIcon,
   Gavel as GavelIcon,
+  CheckCircle as ApproveIcon,
+  Cancel as RejectIcon,
+  Undo as UndoIcon,
 } from "@mui/icons-material";
 import {
   useDeleteResultMutation,
@@ -54,9 +57,14 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit }) {
   const [openModerate, setOpenModerate] = useState(false);
   const [resultToModerate, setResultToModerate] = useState(null);
   const [newGrandTotal, setNewGrandTotal] = useState("");
+  const [moderationProof, setModerationProof] = useState("");
+  const [moderationPfNo, setModerationPfNo] = useState("");
+  const [moderationError, setModerationError] = useState("");
 
   // instant UI overrides without mutating RTK cache
-  const [overrides, setOverrides] = useState({}); // { [resultId]: { grandtotal, moderated } }
+  const [overrides, setOverrides] = useState({}); // { [resultId]: { grandtotal, moderated, moderationStatus, moderationPendingGrandtotal, moderationProof, moderationAuthorizedPfNo } }
+  const [approvingId, setApprovingId] = useState(null);
+  const [rejectingId, setRejectingId] = useState(null);
 
   // expand states
   const [expandedSessions, setExpandedSessions] = useState({});
@@ -160,7 +168,14 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit }) {
     }
   };
 
-  const handleViewDetailsClick = (result) => setSelectedResultForDetails(result);
+  const mergeWithOverride = (result) => {
+    const override = overrides[result._id];
+    return override ? { ...result, ...override } : result;
+  };
+
+  const handleViewDetailsClick = (result) => {
+    setSelectedResultForDetails(mergeWithOverride(result));
+  };
 
   // base list for selected course
   const resultsForSelectedCourse = useMemo(() => {
@@ -201,9 +216,13 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit }) {
   // moderation
   const openModeration = (result) => {
     setResultToModerate(result);
-    const o = overrides[result._id];
-    const currentGT = o?.grandtotal ?? result.grandtotal ?? "";
-    setNewGrandTotal(String(currentGT));
+    const o = overrides[result._id] || {};
+    const pendingGrand = o.moderationPendingGrandtotal ?? result.moderationPendingGrandtotal;
+    const baseGrand = pendingGrand ?? o.grandtotal ?? result.grandtotal ?? "";
+    setNewGrandTotal(baseGrand === "" ? "" : String(baseGrand));
+    setModerationProof(o.moderationProof ?? result.moderationProof ?? "");
+    setModerationPfNo(o.moderationAuthorizedPfNo ?? result.moderationAuthorizedPfNo ?? "");
+    setModerationError("");
     setOpenModerate(true);
   };
 
@@ -211,35 +230,180 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit }) {
     setOpenModerate(false);
     setResultToModerate(null);
     setNewGrandTotal("");
+    setModerationProof("");
+    setModerationPfNo("");
+    setModerationError("");
   };
 
   const handleConfirmModeration = async () => {
     if (!resultToModerate) return;
     const gt = Number(newGrandTotal);
-    if (Number.isNaN(gt)) return;
+    if (Number.isNaN(gt)) {
+      setModerationError("Grand total must be a valid number.");
+      return;
+    }
+    const proofTrimmed = moderationProof.trim();
+    const pfTrimmed = moderationPfNo.trim();
+    if (!proofTrimmed || !pfTrimmed) {
+      setModerationError("Provide proof and the authorizing PF No to complete moderation.");
+      return;
+    }
+
+    setModerationError("");
 
     try {
-      await updateResult({
+      const updated = await updateResult({
         id: resultToModerate._id,
-        grandtotal: gt,
-        moderated: true,
+        moderationGrandtotal: gt,
+        moderationProof: proofTrimmed,
+        moderationAuthorizedPfNo: pfTrimmed,
       }).unwrap();
 
       // instant UI without mutating RTK cache
       setOverrides((prev) => ({
         ...prev,
-        [resultToModerate._id]: { grandtotal: gt, moderated: true },
+        [resultToModerate._id]: {
+          ...(prev[resultToModerate._id] || {}),
+          grandtotal: updated.grandtotal,
+          grade: updated.grade,
+          moderated: updated.moderated ?? false,
+          moderationStatus: updated.moderationStatus ?? 'pending',
+          moderationPendingGrandtotal: updated.moderationPendingGrandtotal ?? gt,
+          moderationOriginalGrandtotal: updated.moderationOriginalGrandtotal,
+          moderationProof: updated.moderationProof ?? proofTrimmed,
+          moderationAuthorizedPfNo: updated.moderationAuthorizedPfNo ?? pfTrimmed,
+        },
       }));
+
+      setSelectedResultForDetails((prev) => {
+        if (!prev || prev._id !== resultToModerate._id) return prev;
+        return { ...prev, ...updated };
+      });
 
       closeModeration();
     } catch (err) {
       console.error("Failed to moderate result:", err);
+      setModerationError(err?.data?.message || "Failed to moderate result.");
     }
   };
 
-  const isModerated = (r) => {
-    const o = overrides[r._id];
-    return (o?.moderated ?? r.moderated) === true;
+  const handleApproveModeration = async (result) => {
+    if (!result) return;
+    const merged = mergeWithOverride(result);
+    setApprovingId(result._id);
+    try {
+      const updated = await updateResult({
+        id: result._id,
+        moderationAction: 'approve',
+      }).unwrap();
+
+      setOverrides((prev) => ({
+        ...prev,
+        [result._id]: {
+          ...(prev[result._id] || {}),
+          grandtotal: updated.grandtotal,
+          grade: updated.grade,
+          moderated: updated.moderated,
+          moderationStatus: updated.moderationStatus,
+          moderationPendingGrandtotal: updated.moderationPendingGrandtotal,
+          moderationProof: updated.moderationProof,
+          moderationAuthorizedPfNo: updated.moderationAuthorizedPfNo,
+          moderationApprovedAt: updated.moderationApprovedAt,
+          moderationOriginalGrandtotal: updated.moderationOriginalGrandtotal,
+        },
+      }));
+
+      setSelectedResultForDetails((prev) => {
+        if (!prev || prev._id !== result._id) return prev;
+        return { ...prev, ...updated };
+      });
+
+      setModerationError("");
+    } catch (err) {
+      console.error("Failed to approve moderation:", err);
+      const message = err?.data?.message || "Failed to approve moderation.";
+      setModerationError(message);
+      const pendingGrand = merged.moderationPendingGrandtotal ?? merged.grandtotal ?? "";
+      setResultToModerate(merged);
+      setNewGrandTotal(pendingGrand === "" ? "" : String(pendingGrand));
+      setModerationProof(merged.moderationProof ?? "");
+      setModerationPfNo(merged.moderationAuthorizedPfNo ?? "");
+      setOpenModerate(true);
+    } finally {
+      setApprovingId(null);
+    }
+  };
+
+  const handleRejectModeration = async (result) => {
+    if (!result) return;
+    const merged = mergeWithOverride(result);
+    setRejectingId(result._id);
+    try {
+      const updated = await updateResult({
+        id: result._id,
+        moderationAction: 'reject',
+      }).unwrap();
+
+      setOverrides((prev) => {
+        const next = {
+          ...(prev[result._id] || {}),
+          grandtotal: updated.grandtotal,
+          grade: updated.grade,
+          moderated: updated.moderated,
+          moderationStatus: updated.moderationStatus,
+          moderationPendingGrandtotal: updated.moderationPendingGrandtotal,
+          moderationProof: updated.moderationProof,
+          moderationAuthorizedPfNo: updated.moderationAuthorizedPfNo,
+          moderationApprovedAt: updated.moderationApprovedAt,
+          moderationOriginalGrandtotal: updated.moderationOriginalGrandtotal,
+        };
+        // Drop override when moderation status returns to none to avoid stale values
+        if (!next.moderationStatus || next.moderationStatus === 'none') {
+          const clone = { ...prev };
+          delete clone[result._id];
+          return clone;
+        }
+        return { ...prev, [result._id]: next };
+      });
+
+      setSelectedResultForDetails((prev) => {
+        if (!prev || prev._id !== result._id) return prev;
+        return { ...prev, ...updated };
+      });
+
+      if (resultToModerate?._id === result._id) {
+        closeModeration();
+      }
+    } catch (err) {
+      console.error("Failed to reject moderation:", err);
+      const message = err?.data?.message || "Failed to reject moderation.";
+      setModerationError(message);
+      setResultToModerate(merged);
+      const revertTarget = merged.moderationPendingGrandtotal ?? merged.grandtotal ?? "";
+      setNewGrandTotal(revertTarget === "" ? "" : String(revertTarget));
+      setModerationProof(merged.moderationProof ?? "");
+      setModerationPfNo(merged.moderationAuthorizedPfNo ?? "");
+      setOpenModerate(true);
+    } finally {
+      setRejectingId(null);
+    }
+  };
+
+  const getModerationState = (result) => {
+    const merged = mergeWithOverride(result);
+    const status = merged.moderationStatus
+      ? merged.moderationStatus
+      : (merged.moderated ? 'approved' : 'none');
+    return {
+      merged,
+      status,
+      isApproved: status === 'approved',
+      isPending: status === 'pending',
+      pendingGrandtotal: merged.moderationPendingGrandtotal,
+      proof: merged.moderationProof,
+      pfNo: merged.moderationAuthorizedPfNo,
+      approvedAt: merged.moderationApprovedAt,
+    };
   };
 
   // folder UI
@@ -525,9 +689,23 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit }) {
                   </TableHead>
                   <TableBody>
                     {filteredResultsForSelectedCourse.map((result, index) => {
-                      const o = overrides[result._id];
-                      const moderated = (o?.moderated ?? result.moderated) === true;
-                      const grandTotalDisplay = o?.grandtotal ?? result.grandtotal;
+                      const moderation = getModerationState(result);
+                      const { merged, isApproved, isPending, pendingGrandtotal } = moderation;
+                      const grandTotalDisplay = merged.grandtotal;
+                      const gradeDisplay = merged.grade ?? result.grade;
+                      const accentColor = isApproved
+                        ? theme.palette.error.main
+                        : isPending
+                          ? theme.palette.warning.dark
+                          : 'inherit';
+                      const rowBg = isApproved
+                        ? `${theme.palette.error.light}22`
+                        : isPending
+                          ? `${theme.palette.warning.light}22`
+                          : 'inherit';
+
+                      const approveLoading = approvingId === result._id && isUpdating;
+                      const rejectLoading = rejectingId === result._id && isUpdating;
 
                       return (
                         <TableRow
@@ -537,26 +715,35 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit }) {
                           sx={{
                             "&:last-child td, &:last-child th": { border: 0 },
                             cursor: 'pointer',
-                            backgroundColor: moderated ? `${theme.palette.error.light}22` : 'inherit',
+                            backgroundColor: rowBg,
                           }}
                         >
                           <TableCell>{index + 1}</TableCell>
-                          <TableCell sx={{ color: moderated ? theme.palette.error.main : 'inherit' }}>
+                          <TableCell sx={{ color: accentColor }}>
                             {`${result.student?.surname || ''} ${result.student?.firstname || ''}`.trim()}
                           </TableCell>
-                          <TableCell sx={{ color: moderated ? theme.palette.error.main : 'inherit' }}>
+                          <TableCell sx={{ color: accentColor }}>
                             {result.student?.regNo}
                           </TableCell>
                           <TableCell>{result.totalexam}</TableCell>
                           <TableCell>{result.ca}</TableCell>
-                          <TableCell sx={{ fontWeight: 700, color: moderated ? theme.palette.error.main : 'inherit' }}>
+                          <TableCell sx={{ fontWeight: 700, color: accentColor }}>
                             {grandTotalDisplay}
+                            {isPending && pendingGrandtotal !== undefined && pendingGrandtotal !== null && (
+                              <Typography variant="caption" display="block" color="warning.main">
+                                Pending → {pendingGrandtotal}
+                              </Typography>
+                            )}
                           </TableCell>
-                          <TableCell>{result.grade}</TableCell>
+                          <TableCell>{gradeDisplay}</TableCell>
                           <TableCell>
-                            {moderated
-                              ? <Chip label="Moderated" size="small" color="error" variant="outlined" sx={{ fontWeight: 700 }} />
-                              : <Chip label="Normal" size="small" variant="outlined" />}
+                            {isPending ? (
+                              <Chip label="Pending Approval" size="small" color="warning" variant="outlined" sx={{ fontWeight: 700 }} />
+                            ) : isApproved ? (
+                              <Chip label="Moderated" size="small" color="error" variant="outlined" sx={{ fontWeight: 700 }} />
+                            ) : (
+                              <Chip label="Normal" size="small" variant="outlined" />
+                            )}
                           </TableCell>
                           <TableCell align="right" onClick={(e) => e.stopPropagation()}>
                             <Tooltip title="Moderate (edit grand total)">
@@ -564,6 +751,57 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit }) {
                                 <GavelIcon />
                               </IconButton>
                             </Tooltip>
+                            {isPending && (
+                              <>
+                                <Tooltip title="Approve moderation">
+                                  <span>
+                                    <IconButton
+                                      onClick={() => handleApproveModeration(result)}
+                                      color="success"
+                                      disabled={approveLoading || rejectLoading}
+                                    >
+                                      {approveLoading ? (
+                                        <CircularProgress size={20} />
+                                      ) : (
+                                        <ApproveIcon />
+                                      )}
+                                    </IconButton>
+                                  </span>
+                                </Tooltip>
+                                <Tooltip title="Reject moderation">
+                                  <span>
+                                    <IconButton
+                                      onClick={() => handleRejectModeration(result)}
+                                      color="error"
+                                      disabled={approveLoading || rejectLoading}
+                                    >
+                                      {rejectLoading ? (
+                                        <CircularProgress size={20} />
+                                      ) : (
+                                        <RejectIcon />
+                                      )}
+                                    </IconButton>
+                                  </span>
+                                </Tooltip>
+                              </>
+                            )}
+                            {isApproved && (
+                              <Tooltip title="Unapprove moderation (revert to original)">
+                                <span>
+                                  <IconButton
+                                    onClick={() => handleRejectModeration(result)}
+                                    color="warning"
+                                    disabled={rejectLoading}
+                                  >
+                                    {rejectLoading ? (
+                                      <CircularProgress size={20} />
+                                    ) : (
+                                      <UndoIcon />
+                                    )}
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+                            )}
                             <Tooltip title="Edit Scores">
                               <IconButton onClick={() => onEdit(result)} color="primary">
                                 <EditIcon />
@@ -612,6 +850,12 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit }) {
             Are you sure you want to moderate this score?
           </DialogContentText>
 
+          {moderationError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {moderationError}
+            </Alert>
+          )}
+
           <Box sx={{ display: 'grid', gap: 2 }}>
             <TextField
               label="Student"
@@ -636,6 +880,24 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit }) {
               autoFocus
               fullWidth
             />
+            <TextField
+              label="Authorizing PF No"
+              size="small"
+              value={moderationPfNo}
+              onChange={(e) => setModerationPfNo(e.target.value)}
+              helperText="PF number of the officer approving this change"
+              fullWidth
+            />
+            <TextField
+              label="Proof / Justification"
+              size="small"
+              value={moderationProof}
+              onChange={(e) => setModerationProof(e.target.value)}
+              helperText="Describe or reference the evidence for this moderation"
+              multiline
+              minRows={3}
+              fullWidth
+            />
           </Box>
         </DialogContent>
         <DialogActions>
@@ -644,7 +906,12 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit }) {
             onClick={handleConfirmModeration}
             color="error"
             variant="contained"
-            disabled={isUpdating || newGrandTotal === ""}
+            disabled={
+              isUpdating ||
+              newGrandTotal === "" ||
+              moderationPfNo.trim() === "" ||
+              moderationProof.trim() === ""
+            }
             startIcon={isUpdating ? <CircularProgress size={18} /> : null}
           >
             {isUpdating ? "Saving..." : "Confirm Moderation"}

@@ -1,80 +1,94 @@
-// ResultComputation.jsx
-import React, { useMemo, useState, useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Box, Typography, Paper, Grid, TextField, MenuItem, Button,
-  Table, TableHead, TableBody, TableRow, TableCell, TableContainer,
-  CircularProgress, Alert, Chip, useTheme, Tooltip, TablePagination,
-  Divider, IconButton, Toolbar, Backdrop, Skeleton, Stack, Menu, MenuItem as MenuEntry, alpha,
-  Card, CardContent, CardHeader,
-} from "@mui/material";
-import { Info as InfoIcon } from "@mui/icons-material";
-import {
-  Download as DownloadIcon,
-  Refresh as RefreshIcon,
-  Search as SearchIcon,
-  RestartAlt as RestartAltIcon,
-  TableView as TableViewIcon
-} from '@mui/icons-material';
+  Alert,
+  alpha,
+  Backdrop,
+  Box,
+  Button,
+  Card,
+  CardActions,
+  CardContent,
+  CardHeader,
+  Checkbox,
+  Chip,
+  CircularProgress,
+  Divider,
+  FormControlLabel,
+  Grid,
+  IconButton,
+  InputAdornment,
+  Menu,
+  MenuItem as MenuEntry,
+  MenuItem,
+  Paper,
+  Skeleton,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TablePagination,
+  TableRow,
+  TextField,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Step,
+  StepButton,
+  Stepper,
+  Toolbar,
+  Tooltip,
+  Typography,
+  useTheme,
+} from '@mui/material';
 import LoadingButton from '@mui/lab/LoadingButton';
+import {
+  Bolt as BoltIcon,
+  Download as DownloadIcon,
+  Info as InfoIcon,
+  Refresh as RefreshIcon,
+  RestartAlt as RestartAltIcon,
+  Search as SearchIcon,
+  TableView as TableViewIcon,
+  Flag as FlagIcon,
+  OutlinedFlag as OutlinedFlagIcon,
+  StickyNote2Outlined as NoteIcon,
+} from '@mui/icons-material';
 
 import {
-  useLazyGetComprehensiveResultsQuery,
-  useGetSessionsQuery,
   useGetApprovedCoursesByCriteriaQuery,
   useGetGraduatingListQuery,
+  useGetSessionsQuery,
+  useLazyGetComprehensiveResultsQuery,
   useLazySearchCourseRegistrationsQuery,
-} from '../../../store/index';
-
+  useRecomputeAcademicMetricsMutation,
+  useUpdateMetricsMutation,
+} from '../../../store';
 import { downloadExcel, generatePassFailExcel } from '../../../utills/dowloadResultExcel';
-import useResultPDFGenerator from '../../../utills/useResultPDFGenerator';
 import useGradeSummaryPDFGenerator from '../../../utills/useGradeSummaryPDFGenerator';
-import usePassFailPDFGenerator from '../../../utills/usePassFailPDFGenerator';
 import useGraduatingListPDF from '../../../utills/useGraduatingListPDF';
 import useGraduatingListPrintPDF from '../../../utills/useGraduatingListPrintPDF';
 import useMissingScoresPDFGenerator from '../../../utills/useMissingScoresPDFGenerator';
-
-// ————————————————————————————————————————————————————————————
-// helpers
-const normalizeRegNo = (s) => (s ?? '').toString().trim().toUpperCase();
-
-const getCourseResult = (student, course) => {
-  const results = student?.results || {};
-  const keysToTry = [
-    course?.id,
-    course?._id,
-    String(course?.id ?? ''),
-    String(course?._id ?? ''),
-    course?.code,
-    String(course?.code ?? '').toUpperCase(),
-  ].filter(Boolean);
-
-  for (const k of keysToTry) {
-    const r = results[k];
-    if (r) return r;
-  }
-
-  // As last resort, scan values if entries carry explicit courseId/courseCode
-  const vals = Object.values(results || {});
-  const found = vals.find(v =>
-    (v?.courseId && String(v.courseId) === String(course?.id || course?._id)) ||
-    (v?.courseCode && String(v.courseCode).toUpperCase() === String(course?.code || '').toUpperCase())
-  );
-  return found || null;
-};
-
-// Fallback grade if backend didn't set it (ensures 0 => F)
-const gradeFromScore = (score) => {
-  const s = Number(score) || 0;
-  if (s >= 70) return 'A';
-  if (s >= 60) return 'B';
-  if (s >= 50) return 'C';
-  if (s >= 45) return 'D';
-  if (s >= 40) return 'E';
-  return 'F';
-};
-
-const cleanCourseCode = (code = '') =>
-  code.replace(/^[A-Z]-/, '').replace(/\s/g, '');
+import usePassFailPDFGenerator from '../../../utills/usePassFailPDFGenerator';
+import useResultPDFGenerator from '../../../utills/useResultPDFGenerator';
+import {
+  formatIntMetric,
+  formatScore,
+  getCourseResult,
+  gradeFromScore,
+  normalizeRegNo,
+} from './utils/resultUtils';
+import {
+  getResultFlags,
+  buildCarryOverDisplay,
+  useFilteredStudents,
+  useGradeSummary,
+  useRegistrationSets,
+  useSeparatedCourses,
+  useStudentsWithRemarks,
+} from './hooks/useResultCalculations';
 
 const MetricLabel = ({ label, tooltip }) => (
   <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="center">
@@ -88,9 +102,9 @@ const MetricLabel = ({ label, tooltip }) => (
 );
 
 const StatCard = ({ title, value, caption }) => (
-  <Paper elevation={1} sx={{ p: 2, borderRadius: 2, minWidth: 180 }}>
+  <Paper elevation={1} sx={{ p: 1.5, borderRadius: 2, minWidth: 160 }}>
     <Typography variant="overline" color="text.secondary">{title}</Typography>
-    <Typography variant="h5" sx={{ fontWeight: 700 }}>{value}</Typography>
+    <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>{value}</Typography>
     {caption && <Typography variant="caption" color="text.secondary">{caption}</Typography>}
   </Paper>
 );
@@ -99,16 +113,16 @@ const TableSkeleton = ({ columns = 12, rows = 5 }) => (
   <Table size="small">
     <TableHead>
       <TableRow>
-        {Array.from({ length: columns }).map((_, i) => (
-          <TableCell key={i}><Skeleton variant="text" width={80} /></TableCell>
+        {Array.from({ length: columns }).map((_, index) => (
+          <TableCell key={index}><Skeleton variant="text" width={80} /></TableCell>
         ))}
       </TableRow>
     </TableHead>
     <TableBody>
-      {Array.from({ length: rows }).map((_, r) => (
-        <TableRow key={r}>
-          {Array.from({ length: columns }).map((__, c) => (
-            <TableCell key={c}><Skeleton variant="rectangular" height={20} /></TableCell>
+      {Array.from({ length: rows }).map((_, rowIndex) => (
+        <TableRow key={rowIndex}>
+          {Array.from({ length: columns }).map((__, columnIndex) => (
+            <TableCell key={columnIndex}><Skeleton variant="rectangular" height={20} /></TableCell>
           ))}
         </TableRow>
       ))}
@@ -116,26 +130,110 @@ const TableSkeleton = ({ columns = 12, rows = 5 }) => (
   </Table>
 );
 
-// ————————————————————————————————————————————————————————————
 function ResultComputation() {
   const theme = useTheme();
-  const [trigger, { data: processedData, isLoading, isSuccess, isError, error }] =
-    useLazyGetComprehensiveResultsQuery();
+  const errorRef = useRef(null);
+
+  const [triggerResults, {
+    data: processedData,
+    isLoading,
+    isSuccess,
+    isError,
+    error,
+  }] = useLazyGetComprehensiveResultsQuery();
+
   const { data: sessions = [] } = useGetSessionsQuery();
 
   const [formData, setFormData] = useState({ session: '', semester: '', level: '' });
+
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [anchorEl, setAnchorEl] = useState(null);
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const steps = ['Select Term', 'Choose Students', 'Review & Approve'];
+  const [activeStep, setActiveStep] = useState(0);
+  const [eligibleStudents, setEligibleStudents] = useState([]);
+  const [autoExcludedIds, setAutoExcludedIds] = useState([]);
+  const [selectedStudentIds, setSelectedStudentIds] = useState([]);
+  const [selectionQuery, setSelectionQuery] = useState('');
+  const [selectionLoading, setSelectionLoading] = useState(false);
+  const [selectionError, setSelectionError] = useState('');
+  const [computedStudentIds, setComputedStudentIds] = useState([]);
+  const [computedStudentRegNos, setComputedStudentRegNos] = useState([]);
+  const [latestQueryArgs, setLatestQueryArgs] = useState(null);
+  const [officerName, setOfficerName] = useState('');
+  const [approvalError, setApprovalError] = useState('');
+  const [approvalUpdatingId, setApprovalUpdatingId] = useState(null);
+  const [ceoDialogOpen, setCeoDialogOpen] = useState(false);
+  const [ceoDialogData, setCeoDialogData] = useState({ metricsId: null, name: '', note: '', flagged: false });
+
+  const blinkCellSx = useMemo(() => ({
+    color: theme.palette.error.main,
+    fontWeight: 700,
+    animation: 'flash 1.2s ease-in-out infinite',
+    '@keyframes flash': {
+      '0%': { opacity: 1 },
+      '50%': { opacity: 0.2 },
+      '100%': { opacity: 1 },
+    },
+  }), [theme.palette.error.main]);
+
+  const blinkCarryOverSx = useMemo(() => ({
+    color: theme.palette.error.main,
+    border: `1px solid ${alpha(theme.palette.error.main, 0.6)}`,
+    backgroundColor: alpha(theme.palette.error.light, 0.12),
+    fontWeight: 700,
+    animation: 'flash 1.2s ease-in-out infinite',
+    '@keyframes flash': {
+      '0%': { opacity: 1 },
+      '50%': { opacity: 0.2 },
+      '100%': { opacity: 1 },
+    },
+  }), [theme.palette.error.main, theme.palette.error.light]);
+
   const openMenu = Boolean(anchorEl);
-  const errorRef = useRef(null);
 
   const { data: approvedCourses } = useGetApprovedCoursesByCriteriaQuery(
     { session: formData.session, semester: formData.semester, level: formData.level },
-    { skip: !formData.session || !formData.semester || !formData.level }
+    { skip: !formData.session || !formData.semester || !formData.level },
   );
+
+  const [recomputeMetrics, { isLoading: recomputing }] = useRecomputeAcademicMetricsMutation();
+  const [updateMetrics, { isLoading: updatingMetrics }] = useUpdateMetricsMutation();
+
+  const handleRecompute = async () => {
+    if (!formData.session || !formData.semester || !formData.level) return;
+    setBusy(true);
+    try {
+      const payload = {
+        session: formData.session,
+        semester: formData.semester,
+        level: formData.level,
+      };
+      let targetIds = computedStudentIds;
+      let targetRegNos = computedStudentRegNos;
+
+      if (selectedStudentIds.length) {
+        targetIds = selectedStudentIds;
+        const idSet = new Set(selectedStudentIds);
+        targetRegNos = eligibleStudents
+          .filter((student) => idSet.has(student.id))
+          .map((student) => normalizeRegNo(student.regNo));
+      }
+
+      if (targetIds.length) payload.studentIds = targetIds;
+      if (targetRegNos.length) payload.studentRegNos = targetRegNos;
+
+      await recomputeMetrics(payload).unwrap();
+      if (latestQueryArgs) {
+        await triggerResults(latestQueryArgs).unwrap();
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const { generatePDF } = useResultPDFGenerator();
   const { generatePDF: generateGradeSummaryPDF } = useGradeSummaryPDFGenerator();
@@ -144,297 +242,329 @@ function ResultComputation() {
   const { generatePDF: generateGraduatingListPrintPDF } = useGraduatingListPrintPDF();
   const { generatePDF: generateMissingScoresPDF } = useMissingScoresPDFGenerator();
 
-  // registrations loader
-  const [fetchRegs] = useLazySearchCourseRegistrationsQuery();
-  const [regSetsByCourseId, setRegSetsByCourseId] = useState({}); // { [courseId]: Set<REGNO> }
+  const [fetchRegistrations] = useLazySearchCourseRegistrationsQuery();
 
-  // flags based on filtered+remarked data
-  const [hasResults, setHasResults] = useState(false);
-  const [noResults, setNoResults] = useState(false);
+  const separateCourses = useSeparatedCourses(processedData, approvedCourses);
+  const [regSetsByCourseId, setRegSetsByCourseId] = useRegistrationSets({
+    isSuccess,
+    processedData,
+    formData,
+    separateCourses,
+    fetchRegistrations,
+  });
 
-  // graduating list
+  const enhancedProcessedData = useStudentsWithRemarks({
+    processedData,
+    separateCourses,
+    regSetsByCourseId,
+  });
+
+  const filteredStudents = useFilteredStudents({ enhancedProcessedData, query });
+  const gradeSummary = useGradeSummary({
+    enhancedProcessedData,
+    separateCourses,
+    regSetsByCourseId,
+    limitRegNos: computedStudentRegNos.length ? computedStudentRegNos : undefined,
+  });
+
+  const filteredEligibleStudents = useMemo(() => {
+    const q = selectionQuery.trim().toLowerCase();
+    if (!q) return eligibleStudents;
+    return eligibleStudents.filter((student) => {
+      const reg = String(student.regNo || '').toLowerCase();
+      const name = String(student.fullName || '').toLowerCase();
+      return reg.includes(q) || name.includes(q);
+    });
+  }, [eligibleStudents, selectionQuery]);
+
+  const selectedCount = selectedStudentIds.length;
+  const totalEligible = eligibleStudents.length;
+  const autoExcludedCount = autoExcludedIds.length;
+
+  const { hasResults, noResults } = getResultFlags(isSuccess, enhancedProcessedData);
+  const termSelectionLocked = activeStep !== 0 && eligibleStudents.length > 0;
+  const canNavigateToStep = (index) => {
+    if (index === 0) return true;
+    if (index === 1) return eligibleStudents.length > 0;
+    if (index === 2) {
+      return Boolean(latestQueryArgs) || hasResults || noResults || isLoading || isError;
+    }
+    return false;
+  };
+  const isStepCompleted = (index) => {
+    if (index === 0) return eligibleStudents.length > 0;
+    if (index === 1) return Boolean(latestQueryArgs);
+    return false;
+  };
+
   const is400 = String(formData.level) === '400';
   const { data: graduatingList, isFetching: isGradLoading } = useGetGraduatingListQuery(
     { session: formData.session, semester: formData.semester, level: 400 },
-    { skip: !(formData.session && formData.semester && is400 && hasResults) }
+    { skip: !(formData.session && formData.semester && is400 && hasResults) },
   );
 
-  // Remarks: includes 00F (registered but no score) as F
-  const generateRemarks = (student, regularCourses, carryOverCourses) => {
-    const regUpper = normalizeRegNo(student.regNo);
-    const allCourses = [...regularCourses, ...carryOverCourses];
-
-    const failed = [];
-    for (const course of allCourses) {
-      const r = getCourseResult(student, course);
-      if (r) {
-        const g = r.grade ?? gradeFromScore(r.grandtotal);
-        if (g === 'F') failed.push(`${course.unit}${cleanCourseCode(course.code)}`);
-      } else {
-        // registered but no score => 00F (treat as F)
-        const set = regSetsByCourseId[course.id];
-        if (set?.has(regUpper)) failed.push(`${course.unit}${cleanCourseCode(course.code)}`);
-      }
+  useEffect(() => {
+    if (isError && errorRef.current) {
+      errorRef.current.focus();
     }
-    return failed.length ? `Repeat ${failed.join(' ')}` : 'Pass';
+  }, [isError]);
+
+  const handleChange = (event) => {
+    const { name, value } = event.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const separateCourses = useMemo(() => {
-    if (!processedData?.courses || !approvedCourses) return { regularCourses: [], carryOverCourses: [] };
+  const normalizeStanding = (standing) => String(standing || '').toLowerCase();
+  const isAutoExcludedStanding = (standing) => {
+    const value = normalizeStanding(standing);
+    return value === 'deferred' || value === 'withdrawn';
+  };
 
-    // Deduplicate courses by course code. This prevents rendering the same course twice
-    // if there are multiple course documents in the DB with the same code but different IDs.
-    // This is a defensive measure against data integrity issues.
-    const uniqueCourses = [];
-    const seenCodes = new Set();
-    for (const course of (processedData.courses || [])) {
-      if (course.code && !seenCodes.has(course.code)) {
-        uniqueCourses.push(course);
-        seenCodes.add(course.code);
-      }
-    }
+  const getStandingChipProps = (standing) => {
+    const value = normalizeStanding(standing);
+    if (value === 'deferred') return { label: 'Deferred', color: 'warning' };
+    if (value === 'withdrawn') return { label: 'Withdrawn', color: 'error' };
+    if (value === 'readmitted') return { label: 'Readmitted', color: 'info', variant: 'outlined' };
+    return { label: 'Good Standing', color: 'success', variant: 'outlined' };
+  };
 
-    const approvedCourseCodes = approvedCourses.flatMap(doc => doc.courses.map(course => course.code));
-    const regularCourses = []; const carryOverCourses = [];
-    uniqueCourses.forEach(course =>
-      (approvedCourseCodes.includes(course.code) ? regularCourses : carryOverCourses).push(course)
-    );
-    const sortByUnitThenCode = (a, b) => (a.unit - b.unit) || a.code.localeCompare(b.code);
-    regularCourses.sort(sortByUnitThenCode);
-    carryOverCourses.sort(sortByUnitThenCode);
-    return { regularCourses, carryOverCourses };
-  }, [processedData, approvedCourses]);
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setSelectionError('');
+    setApprovalError('');
+    setPage(0);
 
-  // Load registrations for ALL courses (regular + carry-overs)
-  useEffect(() => {
-    const canFetch =
-      isSuccess &&
-      processedData?.courses?.length &&
-      formData.session && formData.semester && formData.level &&
-      (separateCourses.regularCourses.length + separateCourses.carryOverCourses.length > 0);
-
-    if (!canFetch) {
-      setRegSetsByCourseId({});
+    if (!formData.session || !formData.semester || !formData.level) {
+      setSelectionError('Please select session, semester, and level.');
       return;
     }
 
-    let cancelled = false;
-    (async () => {
-      const level = String(formData.level);
-      const session = formData.session;
-      const semester = formData.semester;
+    setActiveStep(0);
+    setEligibleStudents([]);
+    setAutoExcludedIds([]);
+    setSelectedStudentIds([]);
+    setComputedStudentIds([]);
+    setComputedStudentRegNos([]);
+    setLatestQueryArgs(null);
 
-      try {
-        const allCourses = [
-          ...separateCourses.regularCourses,
-          ...separateCourses.carryOverCourses,
-        ];
-
-        const tasks = allCourses.map(async (c) => {
-          const data = await fetchRegs(
-            { session, semester, level, course: c.id, page: 1, limit: 5000 }
-          ).unwrap();
-          const regNos = Array.isArray(data?.regNos) ? data.regNos : [];
-          return [c.id, new Set(regNos.map(normalizeRegNo))];
-        });
-
-        const entries = await Promise.all(tasks);
-        if (!cancelled) setRegSetsByCourseId(Object.fromEntries(entries));
-      } catch {
-        if (!cancelled) setRegSetsByCourseId({});
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [
-    isSuccess,
-    processedData?.courses,
-    formData.session,
-    formData.semester,
-    formData.level,
-    separateCourses.regularCourses,
-    separateCourses.carryOverCourses,
-    fetchRegs
-  ]);
-
-  // Filter OUT students who are NOT registered in ANY course (regular OR carry-over)
-  const enhancedProcessedData = useMemo(() => {
-    if (!processedData?.students) return null;
-
-    const allCourses = [
-      ...separateCourses.regularCourses,
-      ...separateCourses.carryOverCourses
-    ];
-
-    const regMapsReady = Object.keys(regSetsByCourseId).length > 0;
-
-    const isRegisteredSomewhere = (regUpper) => {
-      if (!regMapsReady) return true; // don't drop while sets are still loading
-      for (const c of allCourses) {
-        const set = regSetsByCourseId[c.id];
-        if (set?.has(regUpper)) return true;
-      }
-      return false;
+    const requestArgs = {
+      session: formData.session,
+      semester: formData.semester,
+      level: formData.level,
+      onlyStudents: true,
     };
 
-    const kept = [];
-    const dropped = [];
+    setSelectionLoading(true);
+    try {
+      const response = await triggerResults(requestArgs).unwrap();
+      const list = Array.isArray(response?.students) ? [...response.students] : [];
+      list.sort((a, b) => String(a.regNo || '').localeCompare(String(b.regNo || ''), undefined, { numeric: true, sensitivity: 'base' }));
 
-    for (const stu of processedData.students) {
-      const regUpper = normalizeRegNo(stu.regNo);
-      (isRegisteredSomewhere(regUpper) ? kept : dropped).push(stu);
-    }
-
-    // sort & attach remarks for kept
-    const sortedStudents = [...kept].sort((a, b) => {
-      const numA = parseInt(a.regNo.split('/')[1]);
-      const numB = parseInt(b.regNo.split('/')[1]);
-      return numA - numB;
-    });
-
-    const withRemarks = sortedStudents.map(student => ({
-      ...student,
-      remarks: generateRemarks(student, separateCourses.regularCourses, separateCourses.carryOverCourses)
-    }));
-
-    return {
-      ...processedData,
-      students: withRemarks,
-      nonRegisteredStudents: dropped, // for Pass/Fail PDF "Non-Registration List"
-    };
-  }, [processedData, separateCourses, regSetsByCourseId]);
-
-  // reflect filtered counts in flags
-  useEffect(() => {
-    if (!isSuccess || !enhancedProcessedData) {
-      setHasResults(false);
-      setNoResults(false);
-      return;
-    }
-    const count = enhancedProcessedData.students?.length || 0;
-    setHasResults(count > 0);
-    setNoResults(count === 0);
-  }, [isSuccess, enhancedProcessedData]);
-
-  const studentIndex = useMemo(() => {
-  const map = new Map();
-  if (enhancedProcessedData?.students) {
-    enhancedProcessedData.students.forEach(s => {
-      map.set(normalizeRegNo(s.regNo), s);
-    });
-  }
-  return map;
-}, [enhancedProcessedData]);
-
-  // Grade Summary: totals from registrations (regular + carry-over), 00F counted as F
-const gradeSummary = useMemo(() => {
-  if (!enhancedProcessedData?.students) return [];
-
-  // index regNo → student
-  const studentIndex = new Map(
-    enhancedProcessedData.students.map(s => [normalizeRegNo(s.regNo), s])
-  );
-
-  // combine regular + carry-over courses (already filtered to this level)
-  const allLevelCourses = [
-    ...(separateCourses.regularCourses || []),
-    ...(separateCourses.carryOverCourses || []),
-  ];
-  if (!allLevelCourses.length) return [];
-
-  return allLevelCourses
-    .map(course => {
-      const regSet = regSetsByCourseId?.[course.id] || new Set();
-      const totalRegistered = regSet.size;
-
-      // remove courses with no registrations
-      if (totalRegistered === 0) return null;
-
-      const dist = { A: 0, B: 0, C: 0, D: 0, E: 0, F: 0 };
-
-      // count grades for everyone registered
-      regSet.forEach(regUpper => {
-        const stu = studentIndex.get(regUpper);
-        const r = stu ? getCourseResult(stu, course) : null;
-
-        if (r && Number.isFinite(Number.parseFloat(r.grandtotal))) {
-          const score = Number.parseFloat(r.grandtotal);
-          const g = (r?.grade ?? gradeFromScore(score)) || 'F';
-          if (dist[g] != null) dist[g] += 1;
-          else dist.F += 1; // safety
+      const autoExcluded = [];
+      const autoSelected = [];
+      list.forEach((student) => {
+        if (isAutoExcludedStanding(student.standing)) {
+          autoExcluded.push(student.id);
         } else {
-          // registered but no score ⇒ 00F (counts as F)
-          dist.F += 1;
+          autoSelected.push(student.id);
         }
       });
 
-      const passed = dist.A + dist.B + dist.C + dist.D + dist.E;
-      const percentagePass = totalRegistered > 0 ? (passed / totalRegistered) * 100 : 0;
+      setEligibleStudents(list);
+      setAutoExcludedIds(autoExcluded);
+      setSelectedStudentIds(autoSelected);
+      setActiveStep(list.length ? 1 : 0);
 
-      return {
-        code: course.code,
-        title: course.title,
-        unit: course.unit,
-        totalRegistered,
-        totalExamined: totalRegistered,   // includes 00F
-        gradeDistribution: dist,          // 00F contributes to F
-        percentagePass,
-      };
-    })
-    .filter(Boolean);
-}, [
-  enhancedProcessedData?.students,
-  separateCourses.regularCourses,
-  separateCourses.carryOverCourses,
-  regSetsByCourseId,
-]);
-  // UI handlers
-  const handleChange = (event) => {
-    const { name, value } = event.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+      if (!list.length) {
+        setSelectionError('No registered students were found for the selected term.');
+      }
+    } catch (err) {
+      setSelectionError(err?.data?.error || 'Failed to load students for the selected term.');
+    } finally {
+      setSelectionLoading(false);
+    }
   };
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    setPage(0);
-    await trigger(formData);
+
+  const handleComputeSelected = async () => {
+    if (!selectedStudentIds.length) {
+      setSelectionError('Select at least one student to compute results.');
+      return;
+    }
+    setSelectionError('');
+    setApprovalError('');
+
+    const idSet = new Set(selectedStudentIds);
+    const regNos = eligibleStudents
+      .filter((student) => idSet.has(student.id))
+      .map((student) => normalizeRegNo(student.regNo));
+
+    const queryArgs = {
+      session: formData.session,
+      semester: formData.semester,
+      level: formData.level,
+      studentIds: selectedStudentIds,
+    };
+
+    if (regNos.length) {
+      queryArgs.studentRegNos = regNos;
+    }
+
+    setSelectionLoading(true);
+    try {
+      await triggerResults(queryArgs).unwrap();
+      setComputedStudentIds([...selectedStudentIds]);
+      setComputedStudentRegNos(regNos);
+      setLatestQueryArgs(queryArgs);
+      setQuery('');
+      setActiveStep(2);
+    } catch (err) {
+      setSelectionError(err?.data?.error || 'Failed to compute results for the selected students.');
+    } finally {
+      setSelectionLoading(false);
+    }
   };
+
+  const handleSelectStudent = (studentId, checked) => {
+    setSelectedStudentIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(studentId);
+      else next.delete(studentId);
+      return [...next];
+    });
+  };
+
+  const handleSelectAllStudents = () => {
+    const selectable = eligibleStudents
+      .filter((student) => !isAutoExcludedStanding(student.standing))
+      .map((student) => student.id);
+    setSelectedStudentIds(selectable);
+  };
+
+  const handleClearSelection = () => {
+    setSelectedStudentIds([]);
+  };
+
+  const handleBackToCriteria = () => {
+    setActiveStep(0);
+  };
+
+  const handleReturnToSelection = () => {
+    setSelectionError('');
+    setApprovalError('');
+    setActiveStep(1);
+  };
+
+  const handleApprovalToggle = async (student, approved) => {
+    const metricsId = student?.metrics?._id;
+    if (!metricsId) return;
+
+    if (approved && !officerName.trim() && !student?.ceoApproval?.name) {
+      setApprovalError('Enter College Exam Officer name before approving any student.');
+      return;
+    }
+
+    setApprovalError('');
+    setApprovalUpdatingId(metricsId);
+    try {
+      await updateMetrics({
+        metricsId,
+        ceoApproved: approved,
+        ceoName: approved
+          ? (officerName.trim() || student?.ceoApproval?.name || '')
+          : (student?.ceoApproval?.name || officerName.trim() || ''),
+      }).unwrap();
+
+      if (latestQueryArgs) {
+        await triggerResults(latestQueryArgs).unwrap();
+      }
+    } catch (err) {
+      setApprovalError(err?.data?.error || 'Failed to update College Exam Officer approval.');
+    } finally {
+      setApprovalUpdatingId(null);
+    }
+  };
+
+  const handleOpenCeoDialog = (student) => {
+    const metricsId = student?.metrics?._id;
+    if (!metricsId) return;
+
+    setCeoDialogData({
+      metricsId,
+      name: student?.ceoApproval?.name || officerName,
+      note: student?.ceoApproval?.note || '',
+      flagged: Boolean(student?.ceoApproval?.flagged),
+    });
+    setCeoDialogOpen(true);
+  };
+
+  const handleCloseCeoDialog = () => {
+    setCeoDialogOpen(false);
+  };
+
+  const handleCeoDialogChange = (field, value) => {
+    setCeoDialogData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleCeoDialogSave = async () => {
+    if (!ceoDialogData.metricsId) return;
+    setApprovalError('');
+    setApprovalUpdatingId(ceoDialogData.metricsId);
+    try {
+      await updateMetrics({
+        metricsId: ceoDialogData.metricsId,
+        ceoFlagged: ceoDialogData.flagged,
+        ceoNote: ceoDialogData.note,
+        ceoName: ceoDialogData.name,
+      }).unwrap();
+
+      if (latestQueryArgs) {
+        await triggerResults(latestQueryArgs).unwrap();
+      }
+
+      if (ceoDialogData.name && !officerName.trim()) {
+        setOfficerName(ceoDialogData.name);
+      }
+
+      setCeoDialogOpen(false);
+    } catch (err) {
+      setApprovalError(err?.data?.error || 'Failed to update College Exam Officer note.');
+    } finally {
+      setApprovalUpdatingId(null);
+    }
+  };
+
   const handleReset = () => {
     setFormData({ session: '', semester: '', level: '' });
     setPage(0);
-    setRegSetsByCourseId({}); // clear registrations cache
+    setQuery('');
+    setRegSetsByCourseId({});
+    setActiveStep(0);
+    setEligibleStudents([]);
+    setAutoExcludedIds([]);
+    setSelectedStudentIds([]);
+    setSelectionQuery('');
+    setSelectionError('');
+    setComputedStudentIds([]);
+    setComputedStudentRegNos([]);
+    setLatestQueryArgs(null);
+    setOfficerName('');
+    setApprovalError('');
   };
-  const handleChangePage = (event, newPage) => setPage(newPage);
+
+  const handleChangePage = (_event, newPage) => setPage(newPage);
+
   const handleChangeRowsPerPage = (event) => {
     setRowsPerPage(parseInt(event.target.value, 10));
     setPage(0);
   };
 
-  // Filter by search query (regNo or name)
-  const filteredStudents = useMemo(() => {
-    if (!enhancedProcessedData?.students) return [];
-    const q = query.trim().toLowerCase();
-    if (!q) return enhancedProcessedData.students;
-    return enhancedProcessedData.students.filter(s =>
-      s.regNo.toLowerCase().includes(q) || s.fullName.toLowerCase().includes(q)
-    );
-  }, [enhancedProcessedData, query]);
-
-  // Formatting helpers
-  const formatScore = (score) => {
-    const rounded = Math.round(score || 0);
-    return String(rounded).padStart(2, '0'); // ensures 0 => "00"
-  };
-  const formatIntMetric = (value) => Math.round(value || 0);
-
-  useEffect(() => { if (isError && errorRef.current) errorRef.current.focus(); }, [isError]);
-
   return (
     <Box sx={{ maxWidth: '100%', mx: 'auto', p: { xs: 1.5, md: 2 } }}>
-      {/* Form Card */}
       <Card elevation={3} component="form" onSubmit={handleSubmit} sx={{ borderRadius: 2 }}>
         <CardHeader
           title="Result Computation"
           subheader="Choose session, semester, and level; compute, explore, then export."
+          sx={{ pb: 0.5 }}
           action={
             <Tooltip title="Reset form">
               <span>
@@ -446,57 +576,112 @@ const gradeSummary = useMemo(() => {
           }
         />
         <Divider />
-        <CardContent>
-          <Grid container spacing={2} alignItems="center">
+        <CardContent sx={{ pt: 1.5 }}>
+          <Grid container spacing={1.5} alignItems="center">
             <Grid item xs={12} md={4}>
               <TextField
-                select fullWidth label="Select Session"
-                name="session" value={formData.session} onChange={handleChange} required
+                select
+                fullWidth
+                size="small"
+                label="Session"
+                name="session"
+                value={formData.session}
+                onChange={handleChange}
+                required
+                InputLabelProps={{ shrink: true }}
+                disabled={termSelectionLocked}
               >
-                <MenuItem disabled value=""><em>Select Session</em></MenuItem>
-                {sessions.map(s => (
-                  <MenuItem key={s._id} value={s.sessionTitle}>{s.sessionTitle}</MenuItem>
+                <MenuItem disabled value="">
+                  <em>Select Session</em>
+                </MenuItem>
+                {sessions.map((session) => (
+                  <MenuItem key={session._id} value={session.sessionTitle}>
+                    {session.sessionTitle}
+                  </MenuItem>
                 ))}
               </TextField>
             </Grid>
+
             <Grid item xs={12} md={4}>
               <TextField
-                select fullWidth label="Semester"
-                name="semester" value={formData.semester} onChange={handleChange} required
+                select
+                fullWidth
+                size="small"
+                label="Semester"
+                name="semester"
+                value={formData.semester}
+                onChange={handleChange}
+                required
+                InputLabelProps={{ shrink: true }}
+                disabled={termSelectionLocked}
               >
-                <MenuItem disabled value=""><em>Select Semester</em></MenuItem>
+                <MenuItem disabled value="">
+                  <em>Select Semester</em>
+                </MenuItem>
                 <MenuItem value={1}>First Semester</MenuItem>
                 <MenuItem value={2}>Second Semester</MenuItem>
               </TextField>
             </Grid>
+
             <Grid item xs={12} md={4}>
               <TextField
-                select fullWidth label="Level"
-                name="level" value={formData.level} onChange={handleChange} required
+                select
+                fullWidth
+                size="small"
+                label="Level"
+                name="level"
+                value={formData.level}
+                onChange={handleChange}
+                required
+                InputLabelProps={{ shrink: true }}
+                disabled={termSelectionLocked}
               >
-                <MenuItem disabled value=""><em>Select Level</em></MenuItem>
-                {[100, 200, 300, 400].map(l => <MenuItem key={l} value={l}>{l} Level</MenuItem>)}
+                <MenuItem disabled value="">
+                  <em>Select Level</em>
+                </MenuItem>
+                {[100, 200, 300, 400].map((level) => (
+                  <MenuItem key={level} value={level}>
+                    {level} Level
+                  </MenuItem>
+                ))}
               </TextField>
             </Grid>
 
             <Grid item xs={12} md={8}>
               <TextField
-                fullWidth placeholder="Quick filter by Reg. Number or Name"
-                value={query} onChange={(e) => setQuery(e.target.value)}
-                InputProps={{ startAdornment: <SearchIcon sx={{ mr: 1, opacity: 0.6 }} /> }}
+                fullWidth
+                size="small"
+                placeholder="Quick filter by Reg. Number or Name"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon sx={{ opacity: 0.6 }} fontSize="small" />
+                    </InputAdornment>
+                  ),
+                }}
                 disabled={!hasResults}
               />
             </Grid>
 
             <Grid item xs={12} md={4}>
               <Stack direction="row" spacing={1} justifyContent={{ xs: 'stretch', md: 'flex-end' }}>
-                <LoadingButton type="submit" loading={isLoading} variant="contained" color="primary" sx={{ minWidth: 180 }}>
-                  Compute Results
+                <LoadingButton
+                  type="submit"
+                  loading={isLoading}
+                  variant="contained"
+                  color="primary"
+                  size="small"
+                  sx={{ minWidth: 170 }}
+                >
+                  Search
                 </LoadingButton>
+
                 <Tooltip title="Re-run with current filters">
                   <span>
-                    <IconButton onClick={handleSubmit} disabled={isLoading}>
-                      <RefreshIcon />
+                    <IconButton onClick={handleSubmit} disabled={isLoading} size="small">
+                      <RefreshIcon fontSize="small" />
                     </IconButton>
                   </span>
                 </Tooltip>
@@ -504,33 +689,206 @@ const gradeSummary = useMemo(() => {
             </Grid>
           </Grid>
 
-          {/* Chosen filters summary */}
-          <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: 'wrap' }}>
-            {formData.session && <Chip label={`Session: ${formData.session}`} />}
-            {formData.semester && <Chip label={`Semester: ${formData.semester}`} />}
-            {formData.level && <Chip label={`Level: ${formData.level}`} />}
+          <Stack direction="row" spacing={1} sx={{ mt: 1.25, flexWrap: 'wrap' }}>
+            {formData.session && <Chip size="small" label={`Session: ${formData.session}`} />}
+            {formData.semester && <Chip size="small" label={`Semester: ${formData.semester}`} />}
+            {formData.level && <Chip size="small" label={`Level: ${formData.level}`} />}
           </Stack>
-        </CardContent>
-      </Card>
+      </CardContent>
+    </Card>
 
-      {/* Error / Loading / Empty states */}
-      {isLoading && (
+    <Stepper activeStep={activeStep} sx={{ mt: 3, mb: 2 }} alternativeLabel>
+      {steps.map((label, index) => {
+        const canNavigate = canNavigateToStep(index);
+        return (
+          <Step key={label} completed={isStepCompleted(index)}>
+            <StepButton
+              color="inherit"
+              onClick={() => {
+                if (!canNavigate) return;
+                if (index === 0) {
+                  handleBackToCriteria();
+                } else if (index === 1) {
+                  handleReturnToSelection();
+                } else {
+                  setActiveStep(2);
+                }
+              }}
+              disabled={!canNavigate}
+            >
+              {label}
+            </StepButton>
+          </Step>
+        );
+      })}
+    </Stepper>
+
+    {activeStep === 1 && (
+      <Card elevation={2} sx={{ mb: 3 }}>
+        <CardHeader
+          title="Choose Students"
+          subheader="Select the students whose metrics should be computed for this term."
+        />
+        <CardContent>
+          {selectionError && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              {selectionError}
+            </Alert>
+          )}
+          {autoExcludedCount > 0 && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              {autoExcludedCount} student{autoExcludedCount === 1 ? '' : 's'} with a standing of
+              {' '}<strong>Deferred</strong> or <strong>Withdrawn</strong> were auto-excluded.
+            </Alert>
+          )}
+
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', md: 'center' }}>
+            <TextField
+              fullWidth
+              size="small"
+              label="Filter by Reg. Number or Name"
+              value={selectionQuery}
+              onChange={(event) => setSelectionQuery(event.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" sx={{ opacity: 0.6 }} />
+                  </InputAdornment>
+                ),
+              }}
+            />
+            <Stack direction="row" spacing={1} justifyContent={{ xs: 'flex-end', md: 'flex-start' }}>
+              <Button onClick={handleSelectAllStudents} variant="outlined" size="small">Select All</Button>
+              <Button onClick={handleClearSelection} variant="text" size="small">Clear</Button>
+            </Stack>
+          </Stack>
+
+          <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: 'wrap' }}>
+            <Chip label={`Total: ${totalEligible}`} size="small" />
+            <Chip label={`Selected: ${selectedCount}`} color="primary" size="small" />
+            {autoExcludedCount > 0 && (
+              <Chip label={`Auto-excluded: ${autoExcludedCount}`} color="warning" size="small" />
+            )}
+          </Stack>
+
+          <Box sx={{ mt: 2, maxHeight: 360, overflow: 'auto', borderRadius: 1, border: `1px solid ${alpha(theme.palette.divider, 0.4)}` }}>
+            {selectionLoading ? (
+              <Stack sx={{ py: 4 }} justifyContent="center" alignItems="center">
+                <CircularProgress size={28} />
+                <Typography variant="caption" sx={{ mt: 1 }}>Loading students…</Typography>
+              </Stack>
+            ) : (
+              <Table size="small" stickyHeader>
+                <TableHead>
+                  <TableRow>
+                    <TableCell padding="checkbox" sx={{ fontWeight: 600 }}>Select</TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>Reg. Number</TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>Name</TableCell>
+                    <TableCell sx={{ fontWeight: 600 }}>Standing</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {filteredEligibleStudents.map((student) => {
+                    const disabled = isAutoExcludedStanding(student.standing);
+                    const chipProps = getStandingChipProps(student.standing);
+                    const checked = selectedStudentIds.includes(student.id);
+
+                    return (
+                      <TableRow key={student.id} sx={{ opacity: disabled ? 0.6 : 1 }}>
+                        <TableCell padding="checkbox">
+                          <Checkbox
+                            color="primary"
+                            checked={checked}
+                            disabled={disabled || selectionLoading}
+                            onChange={(event) => handleSelectStudent(student.id, event.target.checked)}
+                          />
+                        </TableCell>
+                        <TableCell sx={{ minWidth: 120 }}>
+                          <Typography variant="body2" fontWeight={600}>{student.regNo}</Typography>
+                        </TableCell>
+                        <TableCell sx={{ minWidth: 200 }}>
+                          <Typography variant="body2">{student.fullName || '—'}</Typography>
+                        </TableCell>
+                        <TableCell sx={{ minWidth: 140 }}>
+                          <Chip size="small" {...chipProps} sx={{ fontWeight: 600 }} />
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+
+                  {!filteredEligibleStudents.length && (
+                    <TableRow>
+                      <TableCell colSpan={4} align="center" sx={{ py: 3 }}>
+                        <Typography variant="body2" color="text.secondary">No students match the current filter.</Typography>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            )}
+          </Box>
+        </CardContent>
+        <CardActions
+          sx={{
+            px: 3,
+            pb: 2,
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 1.5,
+          }}
+        >
+          <Button onClick={handleBackToCriteria} disabled={selectionLoading}>Back</Button>
+          <Stack direction="row" spacing={1}>
+            <LoadingButton
+              variant="outlined"
+              color="secondary"
+              startIcon={<BoltIcon />}
+              loading={recomputing || busy}
+              onClick={handleRecompute}
+              disabled={
+                selectionLoading ||
+                busy ||
+                (!selectedCount && !computedStudentIds.length)
+              }
+              size="small"
+              sx={{ minWidth: 150 }}
+            >
+              Recompute
+            </LoadingButton>
+            <LoadingButton
+              onClick={handleComputeSelected}
+              variant="contained"
+              color="primary"
+              disabled={selectionLoading || !selectedCount}
+              loading={selectionLoading}
+            >
+              Compute Selected
+            </LoadingButton>
+          </Stack>
+        </CardActions>
+      </Card>
+    )}
+
+      {isLoading && activeStep === 2 && (
         <Paper elevation={2} sx={{ mt: 3, p: 2 }} aria-busy>
           <TableSkeleton columns={16} rows={6} />
         </Paper>
       )}
 
-      {isError && (
+      {isError && activeStep === 2 && (
         <Paper elevation={3} sx={{ mt: 3, p: 3 }} role="alert" tabIndex={-1} ref={errorRef}>
           <Alert severity="error" sx={{ mb: 2 }}>
             <Typography variant="h6">Error Loading Results</Typography>
             <Typography>{error?.data?.error || 'Unknown error occurred'}</Typography>
           </Alert>
-          <Button variant="outlined" onClick={handleSubmit} startIcon={<RefreshIcon />}>Retry</Button>
+          <Button variant="outlined" onClick={handleSubmit} startIcon={<RefreshIcon />}>
+            Retry
+          </Button>
         </Paper>
       )}
 
-      {noResults && (
+      {noResults && !isLoading && activeStep === 2 && (
         <Paper elevation={3} sx={{ mt: 3, p: 4, textAlign: 'center' }}>
           <InfoIcon color="info" sx={{ fontSize: 56, mb: 1 }} />
           <Typography variant="h6">No Results Found</Typography>
@@ -540,10 +898,14 @@ const gradeSummary = useMemo(() => {
         </Paper>
       )}
 
-      {/* Results */}
-      {hasResults && (
+      {hasResults && !isLoading && enhancedProcessedData && activeStep === 2 && (
         <Paper elevation={3} sx={{ mt: 3, p: 2, overflow: 'hidden' }}>
-          {/* Top toolbar */}
+          {approvalError && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              {approvalError}
+            </Alert>
+          )}
+
           <Toolbar
             sx={{
               px: 1,
@@ -553,19 +915,47 @@ const gradeSummary = useMemo(() => {
               gap: 2,
               flexWrap: 'wrap',
               alignItems: 'center',
-              justifyContent: 'space-between'
+              justifyContent: 'space-between',
             }}
           >
             <Stack direction="row" spacing={2} alignItems="stretch" sx={{ flexWrap: 'wrap' }}>
-              <StatCard title="Students" value={enhancedProcessedData.students.length} />
+              <StatCard title="Students" value={enhancedProcessedData?.students?.length || 0} />
               <StatCard title="Regular Courses" value={separateCourses.regularCourses.length} />
               <StatCard title="Carry Overs" value={separateCourses.carryOverCourses.length} />
             </Stack>
 
-            <Stack direction="row" spacing={1}>
-              <Button variant="outlined" startIcon={<TableViewIcon />} onClick={(e) => setAnchorEl(e.currentTarget)}>
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              spacing={1}
+              alignItems="center"
+              sx={{ flexWrap: 'wrap' }}
+            >
+              <TextField
+                size="small"
+                label="College Exam Officer"
+                value={officerName}
+                onChange={(event) => setOfficerName(event.target.value)}
+                placeholder="Enter your name"
+                sx={{ minWidth: 220 }}
+              />
+
+              <Button
+                size="small"
+                onClick={handleReturnToSelection}
+                disabled={selectionLoading}
+              >
+                Change Selection
+              </Button>
+
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<TableViewIcon />}
+                onClick={(event) => setAnchorEl(event.currentTarget)}
+              >
                 Export
               </Button>
+
               <Menu anchorEl={anchorEl} open={openMenu} onClose={() => setAnchorEl(null)}>
                 <MenuEntry onClick={async () => {
                   setBusy(true); setAnchorEl(null);
@@ -609,8 +999,8 @@ const gradeSummary = useMemo(() => {
                     {
                       subject: 'Biological Sciences',
                       department: enhancedProcessedData?.department || 'Biochemistry',
-                      programme: enhancedProcessedData?.programme || 'B. Sc. Biochemistry'
-                    }
+                      programme: enhancedProcessedData?.programme || 'B. Sc. Biochemistry',
+                    },
                   );
                   setBusy(false);
                 }}>
@@ -624,7 +1014,7 @@ const gradeSummary = useMemo(() => {
                       enhancedProcessedData,
                       formData,
                       separateCourses,
-                      { includeCarryOvers: false }
+                      { registrationSets: regSetsByCourseId }
                     );
                   } finally {
                     setBusy(false);
@@ -646,6 +1036,7 @@ const gradeSummary = useMemo(() => {
                 >
                   Graduating List (PDF)
                 </MenuEntry>
+
                 <MenuEntry
                   disabled={!(formData.session && formData.semester && is400 && hasResults) || isGradLoading || !graduatingList?.students?.length}
                   onClick={async () => {
@@ -661,24 +1052,22 @@ const gradeSummary = useMemo(() => {
                 </MenuEntry>
               </Menu>
 
-              <LoadingButton variant="contained" loading={busy} startIcon={<DownloadIcon />}>
+              <LoadingButton variant="contained" size="small" loading={busy} startIcon={<DownloadIcon />}>
                 Quick Export
               </LoadingButton>
             </Stack>
           </Toolbar>
 
-          {/* Legend */}
           <Stack direction="row" spacing={2} sx={{ mt: 1, px: 1 }}>
             <Typography variant="caption"><b>NR</b>: Not registered for this course (by current Session/Semester/Level)</Typography>
             <Typography variant="caption"><b>00F</b>: Registered but no score recorded (treated as F)</Typography>
+            <Typography variant="caption"><b>-</b>: Elective not taken</Typography>
           </Stack>
 
-          {/* Data table */}
           <Box sx={{ mt: 2, borderRadius: 1, overflow: 'auto' }}>
             <TableContainer sx={{ maxHeight: 600 }}>
               <Table size="small" stickyHeader aria-label="results table">
                 <TableHead>
-                  {/* Group header */}
                   <TableRow sx={{ '& .MuiTableCell-root': { fontWeight: 700 } }}>
                     <TableCell align="left" colSpan={2}>Profile</TableCell>
                     <TableCell align="center" colSpan={separateCourses.regularCourses.length}>Courses</TableCell>
@@ -687,13 +1076,18 @@ const gradeSummary = useMemo(() => {
                     <TableCell align="center" colSpan={4}>Previous</TableCell>
                     <TableCell align="center" colSpan={4}>Cumulative</TableCell>
                     <TableCell align="left">Remarks</TableCell>
+                    <TableCell align="left">CEO Approval</TableCell>
                   </TableRow>
 
-                  {/* Column headers */}
-                  <TableRow sx={{ backgroundColor: alpha(theme.palette.primary.main, 0.06), '& .MuiTableCell-root': { fontWeight: 600 } }}>
+                  <TableRow
+                    sx={{
+                      backgroundColor: alpha(theme.palette.primary.main, 0.06),
+                      '& .MuiTableCell-root': { fontWeight: 600 },
+                    }}
+                  >
                     <TableCell sx={{ position: 'sticky', left: 0, background: theme.palette.background.paper, zIndex: 2 }}>S/No.</TableCell>
                     <TableCell sx={{ position: 'sticky', left: 80, background: theme.palette.background.paper, zIndex: 2 }}>Reg. Number / Name</TableCell>
-                    {separateCourses.regularCourses.map(course => (
+                    {separateCourses.regularCourses.map((course) => (
                       <TableCell key={course.id} align="center">
                         {course.code.replace(/^[A-Z]-/, '')} ({course.unit})
                       </TableCell>
@@ -712,99 +1106,109 @@ const gradeSummary = useMemo(() => {
                     <TableCell align="center"><MetricLabel label="CPE" tooltip="Cumulative Points Earned" /></TableCell>
                     <TableCell align="center"><MetricLabel label="CGPA" tooltip="Cumulative GPA" /></TableCell>
                     <TableCell>Remark</TableCell>
+                    <TableCell>College Exam Officer</TableCell>
                   </TableRow>
                 </TableHead>
 
                 <TableBody>
-                  {filteredStudents
+                  {(filteredStudents || [])
                     .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
                     .map((student, index) => {
                       const prevMetrics = student.previousMetrics || {};
                       const currMetrics = student.currentMetrics || {};
-                      const cumMetrics  = student.metrics || {};
+                      const cumMetrics = student.metrics || {};
+                      const ceo = student.ceoApproval || {};
                       const rowNumber = page * rowsPerPage + index + 1;
                       const studentRegUpper = normalizeRegNo(student.regNo);
+                      const metricsId = student.metrics?._id;
+                      const isProbation = Number(cumMetrics.CGPA || 0) < 1;
+                      const stickyBg = isProbation
+                        ? alpha(theme.palette.warning.light, 0.25)
+                        : theme.palette.background.paper;
+                      const standingChip = getStandingChipProps(student.standing);
+                      const updatedAtText = ceo.updatedAt
+                        ? new Date(ceo.updatedAt).toLocaleString()
+                        : null;
 
                       return (
-                        <TableRow key={student.id} hover>
-                          <TableCell sx={{ position: 'sticky', left: 0, background: theme.palette.background.paper }}>
+                        <TableRow
+                          key={student.id || student.regNo}
+                          hover
+                          sx={{
+                            backgroundColor: isProbation ? alpha(theme.palette.warning.light, 0.12) : undefined,
+                          }}
+                        >
+                          <TableCell sx={{ position: 'sticky', left: 0, background: stickyBg }}>
                             {rowNumber}
                           </TableCell>
-                          <TableCell sx={{ position: 'sticky', left: 80, background: theme.palette.background.paper, minWidth: 200 }}>
+                          <TableCell sx={{ position: 'sticky', left: 80, background: stickyBg, minWidth: 220 }}>
                             <Box>
                               <Typography variant="body2" fontWeight={700}>{student.regNo}</Typography>
                               <Typography variant="body2" color="text.secondary">{student.fullName}</Typography>
+                              <Box sx={{ mt: 0.5 }}>
+                                <Chip size="small" sx={{ fontWeight: 600 }} {...standingChip} />
+                              </Box>
                             </Box>
                           </TableCell>
 
-                          {/* Regular courses */}
-                          {separateCourses.regularCourses.map(course => {
-                            const result = getCourseResult(student, course);
+                          {separateCourses.regularCourses.map((course) => {
                             const regSet = regSetsByCourseId[course.id];
                             const isRegistered = regSet?.has(studentRegUpper);
+                            const isElective = String(course?.option || '').toUpperCase() === 'E';
+                            const result = isRegistered ? getCourseResult(student, course) : null;
 
-                            const effectiveGrade =
-                              result
-                                ? (result.grade ?? gradeFromScore(result.grandtotal))
-                                : (isRegistered ? 'F' : undefined);
-
-                            const color = effectiveGrade === 'F'
-                              ? theme.palette.error.main
-                              : theme.palette.text.primary;
-
-                            if (result) {
-                              const score = String(Math.round(result.grandtotal || 0)).padStart(2, '0');
+                            if (!isRegistered) {
                               return (
-                                <TableCell key={`${student.id}-${course.id}`} align="center" sx={{ color }}>
-                                  {`${score}${effectiveGrade ?? ''}`}
+                                <TableCell key={`${student.id}-${course.id}`} align="center">
+                                  {isElective ? '-' : 'NR'}
                                 </TableCell>
                               );
                             }
 
-                            if (isRegistered) {
+                            if (result) {
+                              const grade = result.grade ?? gradeFromScore(result.grandtotal);
+                              const scoreDisplay = formatScore(result.grandtotal);
+                              if (grade === 'F' && scoreDisplay === '00') {
+                                return (
+                                  <TableCell key={`${student.id}-${course.id}`} align="center" sx={blinkCellSx}>
+                                    {`${scoreDisplay}${grade}`}
+                                  </TableCell>
+                                );
+                              }
+
+                              const color = grade === 'F' ? theme.palette.error.main : theme.palette.text.primary;
                               return (
                                 <TableCell key={`${student.id}-${course.id}`} align="center" sx={{ color }}>
-                                  {'00F'}
+                                  {`${scoreDisplay}${grade}`}
                                 </TableCell>
                               );
                             }
 
                             return (
-                              <TableCell key={`${student.id}-${course.id}`} align="center">
-                                {'NR'}
+                              <TableCell key={`${student.id}-${course.id}`} align="center" sx={blinkCellSx}>
+                                00F
                               </TableCell>
                             );
                           })}
 
-                          {/* Carry Over / Others — show 00F if registered but no score */}
                           <TableCell sx={{ backgroundColor: alpha(theme.palette.warning.light, 0.08), minWidth: 180 }}>
-                            {separateCourses.carryOverCourses
-                              .filter(c => {
-                                const r = getCourseResult(student, c);
-                                const regSet = regSetsByCourseId[c.id];
-                                const isReg = regSet?.has(studentRegUpper);
-                                return Boolean(r) || Boolean(isReg); // show if result OR registered
-                              })
-                              .map(course => {
-                                const r = getCourseResult(student, course);
-                                const display = r
-                                  ? `${formatScore(r?.grandtotal)}${(r?.grade ?? gradeFromScore(r?.grandtotal))}`
-                                  : '00F';
-
-                                return (
-                                  <Box
-                                    key={`${student.id}-co-${course.id}`}
-                                    sx={{
-                                      display: 'inline-block',
-                                      mr: 1, mb: 0.5, px: 1, py: 0.5,
-                                      border: `1px dashed ${alpha(theme.palette.text.primary, 0.3)}`,
-                                      borderRadius: 1
-                                    }}
-                                  >
-                                    {course.unit}{course.code.replace(/^[A-Z]-/, '').replace(/\s/g, '')} {display}
-                                  </Box>
-                                );
-                              })}
+                            {buildCarryOverDisplay(student, separateCourses, regSetsByCourseId).map((course) => (
+                              <Box
+                                key={`${student.id}-co-${course.id}`}
+                                sx={{
+                                  display: 'inline-block',
+                                  mr: 1,
+                                  mb: 0.5,
+                                  px: 1,
+                                  py: 0.5,
+                                  border: `1px dashed ${alpha(theme.palette.text.primary, 0.3)}`,
+                                  borderRadius: 1,
+                                  ...(course.isMissing ? blinkCarryOverSx : {}),
+                                }}
+                              >
+                                {course.label} {course.display}
+                              </Box>
+                            ))}
                           </TableCell>
 
                           <TableCell align="center">{formatIntMetric(currMetrics.TCC)}</TableCell>
@@ -822,18 +1226,66 @@ const gradeSummary = useMemo(() => {
                           <TableCell align="center">{formatIntMetric(cumMetrics.CPE)}</TableCell>
                           <TableCell align="center" sx={{ fontWeight: 700 }}>{(cumMetrics.CGPA || 0).toFixed(2)}</TableCell>
 
-                          <TableCell sx={{ textAlign: 'left' }}>{student.remarks}</TableCell>
+                          <TableCell sx={{ textAlign: 'left', minWidth: 200 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                              <Typography variant="body2">{student.remarks}</Typography>
+                              {isProbation && <Chip label="Probation" color="warning" size="small" />}
+                            </Box>
+                          </TableCell>
+
+                          <TableCell sx={{ minWidth: 240 }}>
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <Checkbox
+                                size="small"
+                                color="primary"
+                                disabled={!metricsId || approvalUpdatingId === metricsId || updatingMetrics}
+                                checked={Boolean(ceo.approved)}
+                                onChange={(event) => handleApprovalToggle(student, event.target.checked)}
+                              />
+                              {approvalUpdatingId === metricsId && <CircularProgress size={18} />}
+                              <Typography variant="body2" sx={{ minWidth: 100 }}>
+                                {ceo.approved ? (ceo.name || 'Approved') : 'Pending'}
+                              </Typography>
+                              <Tooltip title="Add approval note or flag">
+                                <span>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => handleOpenCeoDialog(student)}
+                                    disabled={!metricsId || approvalUpdatingId === metricsId || updatingMetrics}
+                                  >
+                                    {ceo.flagged ? (
+                                      <FlagIcon fontSize="small" color="error" />
+                                    ) : ceo.note ? (
+                                      <NoteIcon fontSize="small" color="primary" />
+                                    ) : (
+                                      <OutlinedFlagIcon fontSize="small" />
+                                    )}
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+                            </Stack>
+                            {ceo.note && (
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                                Note: {ceo.note}
+                              </Typography>
+                            )}
+                            {updatedAtText && (
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                Updated {updatedAtText}
+                              </Typography>
+                            )}
+                          </TableCell>
                         </TableRow>
                       );
                     })}
                 </TableBody>
-              </Table>
+      </Table>
             </TableContainer>
 
             <TablePagination
               rowsPerPageOptions={[5, 10, 25, 50, 100]}
               component="div"
-              count={filteredStudents.length || 0}
+              count={filteredStudents?.length || 0}
               rowsPerPage={rowsPerPage}
               page={page}
               onPageChange={handleChangePage}
@@ -843,8 +1295,49 @@ const gradeSummary = useMemo(() => {
         </Paper>
       )}
 
-      {/* Global backdrop for long exports */}
-      <Backdrop open={busy} sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>
+      <Dialog open={ceoDialogOpen} onClose={handleCloseCeoDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>College Exam Officer Note</DialogTitle>
+        <DialogContent sx={{ pt: 1.5 }}>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="Officer Name"
+              value={ceoDialogData.name}
+              onChange={(event) => handleCeoDialogChange('name', event.target.value)}
+              size="small"
+            />
+            <TextField
+              label="Approval Note"
+              value={ceoDialogData.note}
+              onChange={(event) => handleCeoDialogChange('note', event.target.value)}
+              size="small"
+              multiline
+              minRows={3}
+              placeholder="Add context for this approval or flag..."
+            />
+            <FormControlLabel
+              control={(
+                <Checkbox
+                  checked={Boolean(ceoDialogData.flagged)}
+                  onChange={(event) => handleCeoDialogChange('flagged', event.target.checked)}
+                />
+              )}
+              label="Flag this record for follow-up"
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseCeoDialog}>Cancel</Button>
+          <LoadingButton
+            onClick={handleCeoDialogSave}
+            variant="contained"
+            loading={approvalUpdatingId === ceoDialogData.metricsId && updatingMetrics}
+          >
+            Save
+          </LoadingButton>
+        </DialogActions>
+      </Dialog>
+
+      <Backdrop open={busy} sx={{ zIndex: (themeInstance) => themeInstance.zIndex.drawer + 1 }}>
         <Stack alignItems="center" spacing={2}>
           <CircularProgress color="inherit" />
           <Typography>Preparing file…</Typography>

@@ -14,11 +14,11 @@ export const courseRegistrationApi = createApi({
     // POST: upload multiple CSVs
     uploadCourseRegistrations: builder.mutation({
       query: (data) => {
-        const { session, semester, level, files } = data;
+        const { session, semester, curriculumType, files } = data;
         const formData = new FormData();
         formData.append('session', session);
-        formData.append('level', level);
         formData.append('semester', semester);
+        if (curriculumType) formData.append('curriculumType', curriculumType);
         files.forEach((file) => formData.append('files', file));
 
         return {
@@ -36,11 +36,46 @@ export const courseRegistrationApi = createApi({
         params: { session, semester, level, course, page, limit },
       }),
     }),
+    listRegistrationCourses: builder.query({
+      query: ({ session, semester, level, q = '', page = 1, limit = 20 }) => ({
+        url: '/course-registration/registrations/courses',
+        params: { session, semester, level, q, page, limit },
+      }),
+    }),
+
+    getRegistrationStudents: builder.query({
+      query: ({ session, semester, level, course, regNo = '', page = 1, limit = 50 }) => ({
+        url: '/course-registration/registrations/students',
+        params: { session, semester, level, course, regNo, page, limit },
+      }),
+    }),
+
+    moveRegisteredStudents: builder.mutation({
+      query: ({ session, semester, level, fromCourse, toCourse, regNos }) => ({
+        url: '/course-registration/registrations/move',
+        method: 'POST',
+        body: { session, semester, level, fromCourse, toCourse, regNos },
+      }),
+    }),
+
+    deleteRegisteredStudent: builder.mutation({
+      query: ({ session, semester, level, course, regNo }) => ({
+        url: '/course-registration/registrations/student',
+        method: 'DELETE',
+        body: { session, semester, level, course, regNo },
+      }),
+    }),
   }),
 });
 
 export const {
   useUploadCourseRegistrationsMutation,
   useSearchCourseRegistrationsQuery,
-  useLazySearchCourseRegistrationsQuery, // handy for on-demand searches (e.g., button click)
+  useLazySearchCourseRegistrationsQuery,
+  useListRegistrationCoursesQuery,
+  useLazyListRegistrationCoursesQuery,
+  useGetRegistrationStudentsQuery,
+  useLazyGetRegistrationStudentsQuery,
+  useDeleteRegisteredStudentMutation,
+   useMoveRegisteredStudentsMutation,// handy for on-demand searches (e.g., button click)
 } = courseRegistrationApi;
