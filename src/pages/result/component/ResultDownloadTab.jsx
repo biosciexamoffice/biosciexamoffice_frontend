@@ -51,7 +51,7 @@ export default function ResultDownloadTab() {
         address: 'P.M.B 2373, MAKURDI',
         college: 'COLLEGE OF BIOLOGICAL SCIENCES',
         department: 'DEPARTMENT OF BIOCHEMISTRY',
-        programme: 'B. Sc. Biochemistry',
+        programme: 'Programme Not Provided',
         logoUrl: '/uam.jpeg',
       };
 

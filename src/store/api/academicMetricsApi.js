@@ -1,14 +1,15 @@
 // store/api/academicMetricsApi.js
-import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+import { createApi } from '@reduxjs/toolkit/query/react';
+import baseQuery from './baseQuery';
 
 export const academicMetricsApi = createApi({
   reducerPath: 'academicMetricsApi',
-  baseQuery: fetchBaseQuery({ baseUrl: 'http://localhost:10000' }),
+  baseQuery,
   tagTypes: ['AcademicMetrics', 'ComprehensiveResults'],
   endpoints: (builder) => ({
     getComprehensiveResults: builder.query({
       query: ({ session, semester, level, studentIds, studentRegNos, onlyStudents }) => ({
-        url: '/api/academic-metrics/comprehensive',
+        url: '/academic-metrics/comprehensive',
         params: {
           session,
           semester,
@@ -27,7 +28,7 @@ export const academicMetricsApi = createApi({
 
     computeStudentMetrics: builder.query({
       query: ({ session, semester, level, regNo }) => ({
-        url: '/api/academic-metrics/compute-student',
+        url: '/academic-metrics/compute-student',
         params: { session, semester, level, regNo },
       }),
       providesTags: (_r, _e, args) => [
@@ -36,13 +37,13 @@ export const academicMetricsApi = createApi({
     }),
 
     getMetrics: builder.query({
-      query: () => ({ url: '/api/academic-metrics/', method: 'GET' }),
+      query: () => ({ url: '/academic-metrics/', method: 'GET' }),
       providesTags: ['AcademicMetrics'],
     }),
 
     searchMetrics: builder.query({
       query: ({ session, semester, level, regNo }) => ({
-        url: '/api/academic-metrics/search',
+        url: '/academic-metrics/search',
         params: {
           ...(session && { session }),
           ...(semester && { semester }),
@@ -55,7 +56,7 @@ export const academicMetricsApi = createApi({
 
     deleteMetrics: builder.mutation({
       query: (metricsId) => ({
-        url: `/api/academic-metrics/${metricsId}`,
+        url: `/academic-metrics/${metricsId}`,
         method: 'DELETE',
       }),
       invalidatesTags: ['AcademicMetrics', 'ComprehensiveResults'],
@@ -63,7 +64,7 @@ export const academicMetricsApi = createApi({
 
     recomputeAcademicMetrics: builder.mutation({
       query: ({ session, semester, level, studentIds, studentRegNos }) => ({
-        url: '/api/academic-metrics/recompute',
+        url: '/academic-metrics/recompute',
         method: 'POST',
         body: {
           session,
@@ -78,7 +79,7 @@ export const academicMetricsApi = createApi({
 
     updateMetrics: builder.mutation({
       query: ({ metricsId, ...updateData }) => ({
-        url: `/api/academic-metrics/${metricsId}`,
+        url: `/academic-metrics/${metricsId}`,
         method: 'PUT',
         body: updateData,
       }),
@@ -86,7 +87,7 @@ export const academicMetricsApi = createApi({
     }),
     uploadOldMetrics: builder.mutation({
   query: ({ body, onUploadProgress }) => ({
-    url: '/api/academic-metrics/upload-old',
+    url: '/academic-metrics/upload-old',
     method: 'POST',
     body,
     onUploadProgress: (evt) => {
@@ -111,5 +112,5 @@ export const {
   useLazySearchMetricsQuery,
   useUpdateMetricsMutation,
   useRecomputeAcademicMetricsMutation,
-   useUploadOldMetricsMutation,
+  useUploadOldMetricsMutation,
 } = academicMetricsApi;

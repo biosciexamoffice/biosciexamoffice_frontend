@@ -1,20 +1,21 @@
-import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+import { createApi } from '@reduxjs/toolkit/query/react';
+import baseQuery from './baseQuery';
 
 const studentApi = createApi({
   reducerPath: 'studentApi',
-  baseQuery: fetchBaseQuery({ baseUrl: 'http://localhost:10000' }),
+  baseQuery,
   tagTypes: ['Student'],
   endpoints: (builder) => ({
     createStudent: builder.mutation({
       query: (student) => ({
-        url: '/api/students',
+        url: '/students',
         method: 'POST',
         body: student,
       }),
       invalidatesTags: [{ type: 'Student', id: 'LIST' }],
     }),
     getAllStudents: builder.query({
-      query: () => '/api/students',
+      query: () => '/students',
       providesTags: (result) =>
         result
           ? [
@@ -24,12 +25,12 @@ const studentApi = createApi({
           : [{ type: 'Student', id: 'LIST' }],
     }),
     getStudentById: builder.query({
-      query: (id) => `/api/students/${id}`,
+      query: (id) => `/students/${id}`,
       providesTags: (result, error, id) => [{ type: 'Student', id }],
     }),
     updateStudent: builder.mutation({
       query: ({ id, ...student }) => ({
-        url: `/api/students/${id}`,
+        url: `/students/${id}`,
         method: 'PATCH',
         body: student,
       }),
@@ -40,7 +41,7 @@ const studentApi = createApi({
     }),
     updateStudentPassport: builder.mutation({
       query: ({ id, formData }) => ({
-        url: `/api/students/${id}/passport`,
+        url: `/students/${id}/passport`,
         method: 'PATCH',
         body: formData,
       }),
@@ -51,7 +52,7 @@ const studentApi = createApi({
     }),
     deleteStudentPassport: builder.mutation({
       query: ({ id }) => ({
-        url: `/api/students/${id}/passport`,
+        url: `/students/${id}/passport`,
         method: 'DELETE',
       }),
       invalidatesTags: (result, error, { id }) => [
@@ -61,14 +62,14 @@ const studentApi = createApi({
     }),
     deleteStudent: builder.mutation({
       query: ({ id }) => ({
-        url: `/api/students/${id}`,
+        url: `/students/${id}`,
         method: 'DELETE',
       }),
       invalidatesTags: [{ type: 'Student', id: 'LIST' }],
     }),
     uploadStudents: builder.mutation({
       query: (formData) => ({
-        url: '/api/students/upload',
+        url: '/students/upload',
         method: 'POST',
         body: formData,
       }),
@@ -76,7 +77,7 @@ const studentApi = createApi({
     }),
     searchStudentByRegNo: builder.query({
       query: (regNo) => ({
-        url: '/api/students/search',
+        url: '/students/search',
         params: { regNo },
       }),
       providesTags: (result) =>
@@ -84,7 +85,7 @@ const studentApi = createApi({
     }),
     updateStudentStanding: builder.mutation({
       query: ({ id, formData }) => ({
-        url: `/api/students/${id}/standing`,
+        url: `/students/${id}/standing`,
         method: 'PATCH',
         body: formData,
       }),
@@ -95,7 +96,7 @@ const studentApi = createApi({
     }),
     getStandingRecords: builder.query({
       query: (params = {}) => ({
-        url: '/api/students/standing-records',
+        url: '/students/standing-records',
         params,
       }),
       providesTags: (result) =>

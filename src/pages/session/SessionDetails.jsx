@@ -19,6 +19,9 @@ import {
   DialogContent,
   DialogContentText,
   DialogActions,
+  Alert,
+  AlertTitle,
+  Tooltip,
 } from "@mui/material";
 import {
   ArrowBack,
@@ -28,6 +31,7 @@ import {
   ExpandMore,
   CalendarToday,
   CheckCircle,
+  WarningAmber,
 } from "@mui/icons-material";
 import { format } from "date-fns";
 
@@ -66,6 +70,38 @@ const SessionDetails = ({
     };
   }, [session]);
 
+  const closeSummary = session?.closeSummary || null;
+  const blockers = (closeSummary?.blockingReasons || []).filter(Boolean);
+  const canClose = Boolean(closeSummary?.canClose);
+  const metricsSummary =
+    closeSummary?.summary?.metrics || {
+      total: 0,
+      approved: 0,
+      pending: 0,
+      bySemester: {},
+    };
+  const resultsSummary =
+    closeSummary?.summary?.results || { total: 0, students: 0 };
+  const studentsSummary =
+    closeSummary?.summary?.students || { finalYearActive: 0, withMetrics: 0 };
+  const metricsBySemester = metricsSummary.bySemester || {};
+  const readinessSeverity = canClose ? "success" : "warning";
+  const finalYearBaseline = Math.max(
+    studentsSummary.finalYearActive || 0,
+    studentsSummary.withMetrics || 0
+  );
+  const disableCloseButton =
+    session?.status === "completed" || isClosing || !canClose;
+  const primaryBlocker =
+    blockers[0] || "Pending result computation for this session.";
+
+  const checkedAtLabel = closeSummary?.checkedAt
+    ? (() => {
+        const dt = new Date(closeSummary.checkedAt);
+        return Number.isNaN(dt.getTime()) ? null : format(dt, "PPpp");
+      })()
+    : null;
+
   const adjustedTotal =
     promotionStats.totalProcessed ||
     promotionStats.promoted +
@@ -83,6 +119,10 @@ const SessionDetails = ({
 
   const handleConfirmClose = async () => {
     if (!onCloseSession) {
+      setConfirmCloseOpen(false);
+      return;
+    }
+    if (!canClose) {
       setConfirmCloseOpen(false);
       return;
     }
@@ -105,7 +145,8 @@ const SessionDetails = ({
         direction={{ xs: "column", sm: "row" }}
         spacing={2}
         alignItems={{ xs: "flex-start", sm: "center" }}
-        sx={{ mb: 2 }}
+        useFlexGap
+        sx={{ mb: 2, flexWrap: "wrap" }}
       >
         <Typography
           variant="h4"
@@ -119,18 +160,181 @@ const SessionDetails = ({
           )}
           {session.sessionTitle}
         </Typography>
+        {session.status !== "completed" && closeSummary && (
+          <Chip
+            label={canClose ? "Ready to close" : "Awaiting completion"}
+            color={canClose ? "primary" : "warning"}
+            variant={canClose ? "filled" : "outlined"}
+            sx={{ fontWeight: 600 }}
+          />
+        )}
         {session.status !== "completed" && (
-          <Button
-            variant="contained"
-            color="error"
-            onClick={() => setConfirmCloseOpen(true)}
-            startIcon={<CheckCircle />}
-            disabled={isClosing}
+          <Tooltip
+            arrow
+            placement="top"
+            title={
+              canClose
+                ? "Close the session to promote students and update graduation statuses."
+                : primaryBlocker
+            }
           >
-            {isClosing ? "Closing session..." : "End Session"}
-          </Button>
+            <span>
+              <Button
+                variant="contained"
+                color="error"
+                onClick={() => setConfirmCloseOpen(true)}
+                startIcon={<CheckCircle />}
+                disabled={disableCloseButton}
+              >
+                {isClosing ? "Closing session..." : "End Session"}
+              </Button>
+            </span>
+          </Tooltip>
         )}
       </Stack>
+
+      {session.status !== "completed" && (
+        <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
+          <Typography variant="h6" gutterBottom>
+            Session Closure Readiness
+          </Typography>
+          {closeSummary ? (
+            <Stack spacing={2}>
+              <Alert
+                severity={readinessSeverity}
+                icon={
+                  canClose ? (
+                    <CheckCircle fontSize="small" />
+                  ) : (
+                    <WarningAmber fontSize="small" color="warning" />
+                  )
+                }
+              >
+                <AlertTitle>
+                  {canClose
+                    ? "All prerequisites satisfied"
+                    : "Resolve before closing session"}
+                </AlertTitle>
+                {canClose
+                  ? "You can safely end this session. Students will be promoted and graduating statuses updated."
+                  : "Complete the following items before ending this session:"}
+                {!canClose && blockers.length > 0 && (
+                  <List dense sx={{ mt: 1, pb: 0 }}>
+                    {blockers.map((reason) => (
+                      <ListItem key={reason} sx={{ py: 0 }}>
+                        <ListItemIcon sx={{ minWidth: 32 }}>
+                          <WarningAmber color="warning" fontSize="small" />
+                        </ListItemIcon>
+                        <ListItemText primary={reason} />
+                      </ListItem>
+                    ))}
+                  </List>
+                )}
+              </Alert>
+
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={4}>
+                  <Box
+                    sx={{
+                      p: 2,
+                      borderRadius: 2,
+                      border: "1px solid",
+                      borderColor: "divider",
+                    }}
+                  >
+                    <Typography variant="overline" color="text.secondary">
+                      Results Logged
+                    </Typography>
+                    <Typography variant="h5">
+                      {resultsSummary.total}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Students covered: {resultsSummary.students}
+                    </Typography>
+                  </Box>
+                </Grid>
+                <Grid item xs={12} md={4}>
+                  <Box
+                    sx={{
+                      p: 2,
+                      borderRadius: 2,
+                      border: "1px solid",
+                      borderColor: "divider",
+                    }}
+                  >
+                    <Typography variant="overline" color="text.secondary">
+                      Metrics Approved
+                    </Typography>
+                    <Typography variant="h5">
+                      {metricsSummary.approved}/{metricsSummary.total}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Pending: {metricsSummary.pending}
+                    </Typography>
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      useFlexGap
+                      sx={{ mt: 1, flexWrap: "wrap" }}
+                    >
+                      {Object.entries(metricsBySemester).map(
+                        ([sem, stats]) => (
+                          <Chip
+                            key={sem}
+                            size="small"
+                            label={`Sem ${sem}: ${stats.approved}/${stats.total}`}
+                            color={
+                              stats.pending && stats.pending > 0
+                                ? "warning"
+                                : "success"
+                            }
+                            variant={
+                              stats.pending && stats.pending > 0
+                                ? "outlined"
+                                : "filled"
+                            }
+                          />
+                        )
+                      )}
+                    </Stack>
+                  </Box>
+                </Grid>
+                <Grid item xs={12} md={4}>
+                  <Box
+                    sx={{
+                      p: 2,
+                      borderRadius: 2,
+                      border: "1px solid",
+                      borderColor: "divider",
+                    }}
+                  >
+                    <Typography variant="overline" color="text.secondary">
+                      Final-year Coverage
+                    </Typography>
+                    <Typography variant="h5">
+                      {studentsSummary.withMetrics}/
+                      {finalYearBaseline || studentsSummary.withMetrics}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Students with computed metrics
+                    </Typography>
+                  </Box>
+                </Grid>
+              </Grid>
+
+              {checkedAtLabel && (
+                <Typography variant="caption" color="text.secondary">
+                  Checked {checkedAtLabel}
+                </Typography>
+              )}
+            </Stack>
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              Close readiness data will appear once results processing starts.
+            </Typography>
+          )}
+        </Paper>
+      )}
 
       <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
         <ListItem button onClick={() => setOpenDetails(!openDetails)}>
@@ -363,7 +567,7 @@ const SessionDetails = ({
             <Button
               color="error"
               onClick={handleConfirmClose}
-              disabled={isClosing}
+              disabled={isClosing || !canClose}
             >
               {isClosing ? "Processing..." : "End Session"}
             </Button>

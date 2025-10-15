@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   alpha,
@@ -13,7 +13,6 @@ import {
   Chip,
   CircularProgress,
   Divider,
-  FormControlLabel,
   Grid,
   IconButton,
   InputAdornment,
@@ -31,10 +30,6 @@ import {
   TablePagination,
   TableRow,
   TextField,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   Step,
   StepButton,
   Stepper,
@@ -52,10 +47,8 @@ import {
   RestartAlt as RestartAltIcon,
   Search as SearchIcon,
   TableView as TableViewIcon,
-  Flag as FlagIcon,
-  OutlinedFlag as OutlinedFlagIcon,
-  StickyNote2Outlined as NoteIcon,
 } from '@mui/icons-material';
+import { OFFICER_CONFIG } from '../../../constants/officerConfig';
 
 import {
   useGetApprovedCoursesByCriteriaQuery,
@@ -64,7 +57,6 @@ import {
   useLazyGetComprehensiveResultsQuery,
   useLazySearchCourseRegistrationsQuery,
   useRecomputeAcademicMetricsMutation,
-  useUpdateMetricsMutation,
 } from '../../../store';
 import { downloadExcel, generatePassFailExcel } from '../../../utills/dowloadResultExcel';
 import useGradeSummaryPDFGenerator from '../../../utills/useGradeSummaryPDFGenerator';
@@ -163,11 +155,34 @@ function ResultComputation() {
   const [computedStudentIds, setComputedStudentIds] = useState([]);
   const [computedStudentRegNos, setComputedStudentRegNos] = useState([]);
   const [latestQueryArgs, setLatestQueryArgs] = useState(null);
-  const [officerName, setOfficerName] = useState('');
-  const [approvalError, setApprovalError] = useState('');
-  const [approvalUpdatingId, setApprovalUpdatingId] = useState(null);
-  const [ceoDialogOpen, setCeoDialogOpen] = useState(false);
-  const [ceoDialogData, setCeoDialogData] = useState({ metricsId: null, name: '', note: '', flagged: false });
+  const [officerNames, setOfficerNames] = useState({ ceo: '', hod: '', dean: '' });
+  const normalizeOfficer = useCallback((approval = {}) => ({
+    approved: Boolean(approval?.approved),
+    flagged: Boolean(approval?.flagged),
+    name: approval?.name || '',
+    note: approval?.note || '',
+    updatedAt: approval?.updatedAt || null,
+  }), []);
+
+  useEffect(() => {
+    if (!processedData?.students?.length) return;
+    const firstWithMetrics = processedData.students.find((student) => student?.metrics?._id);
+    if (!firstWithMetrics) return;
+    setOfficerNames((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      OFFICER_CONFIG.forEach(({ key, approvalField }) => {
+        if (!next[key]?.trim()) {
+          const name = firstWithMetrics?.[approvalField]?.name || '';
+          if (name && next[key] !== name) {
+            next[key] = name;
+            changed = true;
+          }
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [processedData]);
 
   const blinkCellSx = useMemo(() => ({
     color: theme.palette.error.main,
@@ -201,8 +216,6 @@ function ResultComputation() {
   );
 
   const [recomputeMetrics, { isLoading: recomputing }] = useRecomputeAcademicMetricsMutation();
-  const [updateMetrics, { isLoading: updatingMetrics }] = useUpdateMetricsMutation();
-
   const handleRecompute = async () => {
     if (!formData.session || !formData.semester || !formData.level) return;
     setBusy(true);
@@ -228,7 +241,7 @@ function ResultComputation() {
 
       await recomputeMetrics(payload).unwrap();
       if (latestQueryArgs) {
-        await triggerResults(latestQueryArgs).unwrap();
+        await triggerResults(latestQueryArgs, false).unwrap();
       }
     } finally {
       setBusy(false);
@@ -331,7 +344,6 @@ function ResultComputation() {
   const handleSubmit = async (event) => {
     event.preventDefault();
     setSelectionError('');
-    setApprovalError('');
     setPage(0);
 
     if (!formData.session || !formData.semester || !formData.level) {
@@ -356,7 +368,7 @@ function ResultComputation() {
 
     setSelectionLoading(true);
     try {
-      const response = await triggerResults(requestArgs).unwrap();
+      const response = await triggerResults(requestArgs, false).unwrap();
       const list = Array.isArray(response?.students) ? [...response.students] : [];
       list.sort((a, b) => String(a.regNo || '').localeCompare(String(b.regNo || ''), undefined, { numeric: true, sensitivity: 'base' }));
 
@@ -391,7 +403,6 @@ function ResultComputation() {
       return;
     }
     setSelectionError('');
-    setApprovalError('');
 
     const idSet = new Set(selectedStudentIds);
     const regNos = eligibleStudents
@@ -411,7 +422,7 @@ function ResultComputation() {
 
     setSelectionLoading(true);
     try {
-      await triggerResults(queryArgs).unwrap();
+      await triggerResults(queryArgs, false).unwrap();
       setComputedStudentIds([...selectedStudentIds]);
       setComputedStudentRegNos(regNos);
       setLatestQueryArgs(queryArgs);
@@ -450,87 +461,11 @@ function ResultComputation() {
 
   const handleReturnToSelection = () => {
     setSelectionError('');
-    setApprovalError('');
     setActiveStep(1);
   };
 
-  const handleApprovalToggle = async (student, approved) => {
-    const metricsId = student?.metrics?._id;
-    if (!metricsId) return;
-
-    if (approved && !officerName.trim() && !student?.ceoApproval?.name) {
-      setApprovalError('Enter College Exam Officer name before approving any student.');
-      return;
-    }
-
-    setApprovalError('');
-    setApprovalUpdatingId(metricsId);
-    try {
-      await updateMetrics({
-        metricsId,
-        ceoApproved: approved,
-        ceoName: approved
-          ? (officerName.trim() || student?.ceoApproval?.name || '')
-          : (student?.ceoApproval?.name || officerName.trim() || ''),
-      }).unwrap();
-
-      if (latestQueryArgs) {
-        await triggerResults(latestQueryArgs).unwrap();
-      }
-    } catch (err) {
-      setApprovalError(err?.data?.error || 'Failed to update College Exam Officer approval.');
-    } finally {
-      setApprovalUpdatingId(null);
-    }
-  };
-
-  const handleOpenCeoDialog = (student) => {
-    const metricsId = student?.metrics?._id;
-    if (!metricsId) return;
-
-    setCeoDialogData({
-      metricsId,
-      name: student?.ceoApproval?.name || officerName,
-      note: student?.ceoApproval?.note || '',
-      flagged: Boolean(student?.ceoApproval?.flagged),
-    });
-    setCeoDialogOpen(true);
-  };
-
-  const handleCloseCeoDialog = () => {
-    setCeoDialogOpen(false);
-  };
-
-  const handleCeoDialogChange = (field, value) => {
-    setCeoDialogData((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const handleCeoDialogSave = async () => {
-    if (!ceoDialogData.metricsId) return;
-    setApprovalError('');
-    setApprovalUpdatingId(ceoDialogData.metricsId);
-    try {
-      await updateMetrics({
-        metricsId: ceoDialogData.metricsId,
-        ceoFlagged: ceoDialogData.flagged,
-        ceoNote: ceoDialogData.note,
-        ceoName: ceoDialogData.name,
-      }).unwrap();
-
-      if (latestQueryArgs) {
-        await triggerResults(latestQueryArgs).unwrap();
-      }
-
-      if (ceoDialogData.name && !officerName.trim()) {
-        setOfficerName(ceoDialogData.name);
-      }
-
-      setCeoDialogOpen(false);
-    } catch (err) {
-      setApprovalError(err?.data?.error || 'Failed to update College Exam Officer note.');
-    } finally {
-      setApprovalUpdatingId(null);
-    }
+  const handleOfficerNameChange = (officerKey, value) => {
+    setOfficerNames((prev) => ({ ...prev, [officerKey]: value }));
   };
 
   const handleReset = () => {
@@ -547,8 +482,7 @@ function ResultComputation() {
     setComputedStudentIds([]);
     setComputedStudentRegNos([]);
     setLatestQueryArgs(null);
-    setOfficerName('');
-    setApprovalError('');
+    setOfficerNames({ ceo: '', hod: '', dean: '' });
   };
 
   const handleChangePage = (_event, newPage) => setPage(newPage);
@@ -872,7 +806,7 @@ function ResultComputation() {
 
       {isLoading && activeStep === 2 && (
         <Paper elevation={2} sx={{ mt: 3, p: 2 }} aria-busy>
-          <TableSkeleton columns={16} rows={6} />
+          <TableSkeleton columns={16 + (OFFICER_CONFIG.length - 1)} rows={6} />
         </Paper>
       )}
 
@@ -900,12 +834,6 @@ function ResultComputation() {
 
       {hasResults && !isLoading && enhancedProcessedData && activeStep === 2 && (
         <Paper elevation={3} sx={{ mt: 3, p: 2, overflow: 'hidden' }}>
-          {approvalError && (
-            <Alert severity="warning" sx={{ mb: 2 }}>
-              {approvalError}
-            </Alert>
-          )}
-
           <Toolbar
             sx={{
               px: 1,
@@ -930,15 +858,6 @@ function ResultComputation() {
               alignItems="center"
               sx={{ flexWrap: 'wrap' }}
             >
-              <TextField
-                size="small"
-                label="College Exam Officer"
-                value={officerName}
-                onChange={(event) => setOfficerName(event.target.value)}
-                placeholder="Enter your name"
-                sx={{ minWidth: 220 }}
-              />
-
               <Button
                 size="small"
                 onClick={handleReturnToSelection}
@@ -997,9 +916,9 @@ function ResultComputation() {
                     gradeSummary,
                     formData,
                     {
-                      subject: 'Biological Sciences',
-                      department: enhancedProcessedData?.department || 'Biochemistry',
-                      programme: enhancedProcessedData?.programme || 'B. Sc. Biochemistry',
+                      subject: 'College Not Provided',
+                      department: enhancedProcessedData?.department || 'Department Not Provided',
+                      programme: enhancedProcessedData?.programme || 'Programme Not Provided',
                     },
                   );
                   setBusy(false);
@@ -1076,7 +995,7 @@ function ResultComputation() {
                     <TableCell align="center" colSpan={4}>Previous</TableCell>
                     <TableCell align="center" colSpan={4}>Cumulative</TableCell>
                     <TableCell align="left">Remarks</TableCell>
-                    <TableCell align="left">CEO Approval</TableCell>
+                    <TableCell align="left" colSpan={OFFICER_CONFIG.length}>Officer Approvals</TableCell>
                   </TableRow>
 
                   <TableRow
@@ -1106,7 +1025,9 @@ function ResultComputation() {
                     <TableCell align="center"><MetricLabel label="CPE" tooltip="Cumulative Points Earned" /></TableCell>
                     <TableCell align="center"><MetricLabel label="CGPA" tooltip="Cumulative GPA" /></TableCell>
                     <TableCell>Remark</TableCell>
-                    <TableCell>College Exam Officer</TableCell>
+                    {OFFICER_CONFIG.map((officer) => (
+                      <TableCell key={`officer-header-${officer.key}`}>{officer.label}</TableCell>
+                    ))}
                   </TableRow>
                 </TableHead>
 
@@ -1117,18 +1038,17 @@ function ResultComputation() {
                       const prevMetrics = student.previousMetrics || {};
                       const currMetrics = student.currentMetrics || {};
                       const cumMetrics = student.metrics || {};
-                      const ceo = student.ceoApproval || {};
                       const rowNumber = page * rowsPerPage + index + 1;
                       const studentRegUpper = normalizeRegNo(student.regNo);
-                      const metricsId = student.metrics?._id;
                       const isProbation = Number(cumMetrics.CGPA || 0) < 1;
                       const stickyBg = isProbation
                         ? alpha(theme.palette.warning.light, 0.25)
                         : theme.palette.background.paper;
                       const standingChip = getStandingChipProps(student.standing);
-                      const updatedAtText = ceo.updatedAt
-                        ? new Date(ceo.updatedAt).toLocaleString()
-                        : null;
+                      const officerApprovals = {};
+                      OFFICER_CONFIG.forEach(({ key, approvalField }) => {
+                        officerApprovals[key] = normalizeOfficer(student?.[approvalField]);
+                      });
 
                       return (
                         <TableRow
@@ -1233,48 +1153,46 @@ function ResultComputation() {
                             </Box>
                           </TableCell>
 
-                          <TableCell sx={{ minWidth: 240 }}>
-                            <Stack direction="row" spacing={1} alignItems="center">
-                              <Checkbox
-                                size="small"
-                                color="primary"
-                                disabled={!metricsId || approvalUpdatingId === metricsId || updatingMetrics}
-                                checked={Boolean(ceo.approved)}
-                                onChange={(event) => handleApprovalToggle(student, event.target.checked)}
-                              />
-                              {approvalUpdatingId === metricsId && <CircularProgress size={18} />}
-                              <Typography variant="body2" sx={{ minWidth: 100 }}>
-                                {ceo.approved ? (ceo.name || 'Approved') : 'Pending'}
-                              </Typography>
-                              <Tooltip title="Add approval note or flag">
-                                <span>
-                                  <IconButton
+                          {OFFICER_CONFIG.map((officer) => {
+                            const approval = officerApprovals[officer.key] || {};
+                            const statusLabel = approval.approved ? 'Approved' : 'Pending';
+                            const statusColor = approval.approved ? 'success' : 'default';
+                            const updatedText = approval.updatedAt
+                              ? new Date(approval.updatedAt).toLocaleString()
+                              : null;
+                            const officerName = approval.name || officerNames[officer.key] || '—';
+
+                            return (
+                              <TableCell key={`${student.id}-${officer.key}`} sx={{ minWidth: 200 }}>
+                                <Stack spacing={0.5} alignItems="flex-start">
+                                  <Chip
                                     size="small"
-                                    onClick={() => handleOpenCeoDialog(student)}
-                                    disabled={!metricsId || approvalUpdatingId === metricsId || updatingMetrics}
-                                  >
-                                    {ceo.flagged ? (
-                                      <FlagIcon fontSize="small" color="error" />
-                                    ) : ceo.note ? (
-                                      <NoteIcon fontSize="small" color="primary" />
-                                    ) : (
-                                      <OutlinedFlagIcon fontSize="small" />
-                                    )}
-                                  </IconButton>
-                                </span>
-                              </Tooltip>
-                            </Stack>
-                            {ceo.note && (
-                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                                Note: {ceo.note}
-                              </Typography>
-                            )}
-                            {updatedAtText && (
-                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                                Updated {updatedAtText}
-                              </Typography>
-                            )}
-                          </TableCell>
+                                    color={statusColor}
+                                    label={statusLabel}
+                                    sx={{ fontWeight: 600 }}
+                                  />
+                                  <Typography variant="caption" color="text.secondary">
+                                    Officer: {officerName}
+                                  </Typography>
+                                  {approval.flagged && (
+                                    <Typography variant="caption" color="error" sx={{ fontWeight: 600 }}>
+                                      Flagged for follow-up
+                                    </Typography>
+                                  )}
+                                  {approval.note && (
+                                    <Typography variant="caption" color="text.secondary">
+                                      Note: {approval.note}
+                                    </Typography>
+                                  )}
+                                  {updatedText && (
+                                    <Typography variant="caption" color="text.secondary">
+                                      Updated {updatedText}
+                                    </Typography>
+                                  )}
+                                </Stack>
+                              </TableCell>
+                            );
+                          })}
                         </TableRow>
                       );
                     })}
@@ -1294,48 +1212,6 @@ function ResultComputation() {
           </Box>
         </Paper>
       )}
-
-      <Dialog open={ceoDialogOpen} onClose={handleCloseCeoDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>College Exam Officer Note</DialogTitle>
-        <DialogContent sx={{ pt: 1.5 }}>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField
-              label="Officer Name"
-              value={ceoDialogData.name}
-              onChange={(event) => handleCeoDialogChange('name', event.target.value)}
-              size="small"
-            />
-            <TextField
-              label="Approval Note"
-              value={ceoDialogData.note}
-              onChange={(event) => handleCeoDialogChange('note', event.target.value)}
-              size="small"
-              multiline
-              minRows={3}
-              placeholder="Add context for this approval or flag..."
-            />
-            <FormControlLabel
-              control={(
-                <Checkbox
-                  checked={Boolean(ceoDialogData.flagged)}
-                  onChange={(event) => handleCeoDialogChange('flagged', event.target.checked)}
-                />
-              )}
-              label="Flag this record for follow-up"
-            />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseCeoDialog}>Cancel</Button>
-          <LoadingButton
-            onClick={handleCeoDialogSave}
-            variant="contained"
-            loading={approvalUpdatingId === ceoDialogData.metricsId && updatingMetrics}
-          >
-            Save
-          </LoadingButton>
-        </DialogActions>
-      </Dialog>
 
       <Backdrop open={busy} sx={{ zIndex: (themeInstance) => themeInstance.zIndex.drawer + 1 }}>
         <Stack alignItems="center" spacing={2}>

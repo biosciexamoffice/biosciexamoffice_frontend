@@ -1,13 +1,14 @@
-import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+import { createApi } from '@reduxjs/toolkit/query/react';
+import baseQuery from './baseQuery';
 
 const courseApi = createApi({
     reducerPath: 'courseApi',
-    baseQuery: fetchBaseQuery({ baseUrl: 'http://localhost:10000' }),
+    baseQuery,
     tagTypes: ['Course'],
     endpoints: (builder) => ({
         createCourse: builder.mutation({
             query: (course) => ({
-                url: '/api/courses',
+                url: '/courses',
                 method: 'POST',
                 body: course,
             }),
@@ -16,7 +17,7 @@ const courseApi = createApi({
 
         getAllCourses: builder.query({
             query: () => ({
-                url: '/api/courses',
+                url: '/courses',
                 method: 'GET',
             }),
             providesTags: ['Course'],
@@ -24,7 +25,7 @@ const courseApi = createApi({
 
         getCourseById: builder.query({
             query: (courseId) => ({
-                url: `/api/courses/${courseId}`,
+                url: `/courses/${courseId}`,
                 method: 'GET',
             }),
             providesTags: (result, error, courseId) => [{ type: 'Course', id: courseId }],
@@ -32,7 +33,7 @@ const courseApi = createApi({
 
         updateCourse: builder.mutation({
             query: ({ id, ...patch }) => ({
-                url: `/api/courses/${id}`,
+                url: `/courses/${id}`,
                 method: 'PATCH',
                 body: patch,
             }),
@@ -41,7 +42,7 @@ const courseApi = createApi({
 
         deleteCourse: builder.mutation({
             query: (courseId) => ({
-                url: `/api/courses/${courseId}`,
+                url: `/courses/${courseId}`,
                 method: 'DELETE',
             }),
             invalidatesTags: ['Course'],
@@ -49,7 +50,7 @@ const courseApi = createApi({
 
         uploadCourses: builder.mutation({
             query: (formData) => ({
-                url: '/api/courses/upload',
+                url: '/courses/upload',
                 method: 'POST',
                 body: formData,
             }),

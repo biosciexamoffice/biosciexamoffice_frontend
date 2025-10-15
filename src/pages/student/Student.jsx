@@ -1,7 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
+import { useSelector } from "react-redux";
 import {
   useCreateStudentMutation,
   useGetAllStudentsQuery,
+  useGetCollegesQuery,
+  useGetProgrammesQuery,
 } from "../../store/index";
 import CreateStudent from "./component/CreateStudent";
 import StudentList from "./component/StudentList";
@@ -11,6 +14,9 @@ import StudentUploader from "./component/StudentUploader";
 import StandingManager from "./component/StandingManager";
 import StandingDialog from "./component/StandingDialog";
 import StudentDetailsDialog from "./component/StudentDetailsDialog";
+import { selectCurrentUser, selectCurrentRoles } from "../../store/features/authSlice";
+import { filterInstitutionsForUser } from "../../utills/filterInstitutions";
+import { selectIsReadOnly } from "../../store";
 
 import {
   Box,
@@ -56,6 +62,7 @@ function Student() {
   const [standingFeedback, setStandingFeedback] = useState("");
   const [detailsStudent, setDetailsStudent] = useState(null);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [readOnlyFeedback, setReadOnlyFeedback] = useState("");
 
   const [createStudent, { isLoading: isCreating, error: createError }] =
     useCreateStudentMutation();
@@ -65,12 +72,38 @@ function Student() {
     isError: errorAllStudents,
     refetch: refetchStudents,
   } = useGetAllStudentsQuery();
+  const {
+    data: collegesData,
+    isLoading: isLoadingColleges,
+  } = useGetCollegesQuery();
+  const {
+    data: programmesData,
+    isLoading: isLoadingProgrammes,
+  } = useGetProgrammesQuery();
+
+  const colleges = useMemo(() => collegesData?.colleges || [], [collegesData]);
+  const programmes = useMemo(() => programmesData?.programmes || [], [programmesData]);
+
+  const user = useSelector(selectCurrentUser);
+  const roles = useSelector(selectCurrentRoles);
+  const readOnly = useSelector(selectIsReadOnly);
+
+  const { colleges: scopedColleges, programmes: scopedProgrammes } = useMemo(
+    () => filterInstitutionsForUser(colleges, programmes, user, roles),
+    [colleges, programmes, user, roles]
+  );
 
   useEffect(() => {
     if (view === 'list') {
       refetchStudents();
     }
   }, [view, refetchStudents]);
+
+  const guardReadOnly = (message) => {
+    if (!readOnly) return false;
+    setReadOnlyFeedback(message || 'This action is disabled in read-only mode. Connect to the office network to make changes.');
+    return true;
+  };
 
   const levelCounts = useMemo(() => {
     if (!allStudents) {
@@ -113,6 +146,7 @@ function Student() {
   }, [allStudents]);
 
   const handleCreateStudent = async (inputs) => {
+    if (guardReadOnly()) return;
     await createStudent(inputs).unwrap();
     setLevelFilter(null);
     setStatusFilter(null);
@@ -120,11 +154,13 @@ function Student() {
   };
 
   const handleEditClick = (student) => {
+    if (guardReadOnly()) return;
     setSelectedStudent(student);
     setIsEditModalOpen(true);
   };
 
   const handleStandingEditClick = (student) => {
+    if (guardReadOnly()) return;
     setStandingStudent(student);
     setIsStandingDialogOpen(true);
   };
@@ -183,20 +219,34 @@ function Student() {
             onViewDetails={handleViewDetails}
             levelFilter={levelFilter}
             statusFilter={statusFilter}
+            readOnly={readOnly}
           />
         );
       case "create":
-        return (
+        return readOnly ? (
+          <Alert severity="warning">Create Student is unavailable in read-only mode.</Alert>
+        ) : (
           <CreateStudent
             onCreate={handleCreateStudent}
             isLoading={isCreating}
             error={createError?.data?.message || createError?.data?.error}
+            colleges={scopedColleges}
+            programmes={scopedProgrammes}
+            isLoadingInstitutions={isLoadingColleges || isLoadingProgrammes}
           />
         );
       case "upload":
-        return <StudentUploader />;
+        return readOnly ? (
+          <Alert severity="warning">Bulk upload is unavailable in read-only mode.</Alert>
+        ) : (
+          <StudentUploader />
+        );
       case "standing":
-        return <StandingManager />;
+        return readOnly ? (
+          <Alert severity="warning">Standing manager is unavailable in read-only mode.</Alert>
+        ) : (
+          <StandingManager />
+        );
       case "dashboard":
       default:
         return (
@@ -210,6 +260,27 @@ function Student() {
     }
   };
 
+  const navItems = useMemo(() => {
+    const base = [
+      { text: 'Dashboard', icon: <DashboardIcon />, view: 'dashboard' },
+      { text: 'Student List', icon: <Badge badgeContent={allStudents?.length} color="primary" max={999}><ListAltIcon /></Badge>, view: 'list' },
+      { text: 'Standing Manager', icon: <RuleIcon />, view: 'standing' },
+      { text: 'Create Student', icon: <AddCircleOutlineIcon />, view: 'create' },
+      { text: 'Bulk Upload', icon: <CloudUploadIcon />, view: 'upload' }
+    ];
+    if (readOnly) {
+      return base.filter((item) => ['dashboard', 'list'].includes(item.view));
+    }
+    return base;
+  }, [allStudents?.length, readOnly]);
+
+  useEffect(() => {
+    const allowedViews = navItems.map((item) => item.view);
+    if (!allowedViews.includes(view)) {
+      setView('list');
+    }
+  }, [navItems, view]);
+
   const drawerContent = (
     <Box>
       <Toolbar sx={{ display: 'flex', alignItems: 'center', px: 2, gap: 2, backgroundColor: theme.palette.primary.main, color: theme.palette.primary.contrastText }}>
@@ -217,13 +288,7 @@ function Student() {
         <Typography variant="h6" noWrap>Student Manager</Typography>
       </Toolbar>
       <List sx={{ p: 1 }}>
-        {[
-          { text: 'Dashboard', icon: <DashboardIcon />, view: 'dashboard' },
-          { text: 'Student List', icon: <Badge badgeContent={allStudents?.length} color="primary" max={999}><ListAltIcon /></Badge>, view: 'list' },
-          { text: 'Standing Manager', icon: <RuleIcon />, view: 'standing' },
-          { text: 'Create Student', icon: <AddCircleOutlineIcon />, view: 'create' },
-          { text: 'Bulk Upload', icon: <CloudUploadIcon />, view: 'upload' }
-        ].map((item) => (
+        {navItems.map((item) => (
           <ListItemButton key={item.text} onClick={() => { setView(item.view); if (isMobile) setMobileOpen(false); }} selected={view === item.view} sx={{ borderRadius: 1, mb: 0.5 }}>
             <ListItemIcon sx={{ color: view === item.view ? theme.palette.primary.main : 'inherit' }}>{item.icon}</ListItemIcon>
             <ListItemText primary={item.text} primaryTypographyProps={{ fontWeight: view === item.view ? 600 : 'normal' }} />
@@ -250,7 +315,16 @@ function Student() {
       <Box component="main" sx={{ flexGrow: 1, p: 3, width: { sm: `calc(100% - ${drawerWidth}px)` }, pt: { xs: 8, sm: 3 } }}>
         {renderContent()}
       </Box>
-      {selectedStudent && (<EditStudent student={selectedStudent} open={isEditModalOpen} onClose={handleCloseEditModal} />)}
+      {selectedStudent && (
+        <EditStudent
+          student={selectedStudent}
+          open={isEditModalOpen}
+          onClose={handleCloseEditModal}
+          colleges={scopedColleges}
+          programmes={scopedProgrammes}
+          isLoadingInstitutions={isLoadingColleges || isLoadingProgrammes}
+        />
+      )}
       {standingStudent && (
         <StandingDialog
           student={standingStudent}
@@ -273,6 +347,16 @@ function Student() {
       >
         <Alert severity="success" onClose={() => setStandingFeedback("")} sx={{ width: "100%" }}>
           {standingFeedback}
+        </Alert>
+      </Snackbar>
+      <Snackbar
+        open={Boolean(readOnlyFeedback)}
+        autoHideDuration={4000}
+        onClose={() => setReadOnlyFeedback("")}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert severity="warning" onClose={() => setReadOnlyFeedback("")} sx={{ width: "100%" }}>
+          {readOnlyFeedback}
         </Alert>
       </Snackbar>
     </Box>

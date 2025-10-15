@@ -10,7 +10,6 @@ import {
 } from '@mui/material';
 
 import RefreshIcon from '@mui/icons-material/Refresh';
-import DeleteIcon from '@mui/icons-material/Delete';
 import SearchIcon from '@mui/icons-material/Search';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
@@ -21,6 +20,7 @@ import {
   useGetRegistrationStudentsQuery,
   useDeleteRegisteredStudentMutation,
   useMoveRegisteredStudentsMutation,
+  useDeleteCourseRegistrationsMutation,
   useGetSessionsQuery, useGetAllCoursesQuery
 } from '../../../store/index'; 
 
@@ -51,6 +51,8 @@ export default function RegistrationBrowser() {
   const [selectedRegNos, setSelectedRegNos] = useState([]); // array of regNo strings
   const allSelected = (students) => students?.length > 0 && selectedRegNos.length === students.length;
   const partiallySelected = (students) => selectedRegNos.length > 0 && selectedRegNos.length < (students?.length || 0);
+
+  const [deleteDialog, setDeleteDialog] = useState({ open: false, course: null });
 
   // Data queries
   const coursesArgs = useMemo(() => {
@@ -86,6 +88,7 @@ export default function RegistrationBrowser() {
 
   // Delete single
   const [deleteStudent, { isLoading: deleting, error: deleteErr }] = useDeleteRegisteredStudentMutation();
+  const [deleteCourseRegistrations, { isLoading: deletingCourse, error: deleteCourseErr }] = useDeleteCourseRegistrationsMutation();
 
   // Move (single and bulk)
   const [moveStudents, { isLoading: moving, error: moveErr }] = useMoveRegisteredStudentsMutation();
@@ -128,6 +131,31 @@ export default function RegistrationBrowser() {
     setSelectedRegNos([]); // clear selection
     refetchStudents();
     refetchCourses();
+  };
+
+  const handleDeleteCourse = async () => {
+    if (!filters.session || !filters.semester || !filters.level) return;
+    const course = deleteDialog.course;
+    if (!course) return;
+    try {
+      await deleteCourseRegistrations({
+        session: filters.session,
+        semester: filters.semester,
+        level: filters.level,
+        course: course.id || course._id || course.code,
+      }).unwrap();
+      if (selectedCourse && (selectedCourse.id === course.id || selectedCourse.code === course.code || selectedCourse._id === course._id)) {
+        setSelectedCourse(null);
+        setSelectedRegNos([]);
+      }
+      refetchCourses();
+      if (selectedCourse) {
+        refetchStudents();
+      }
+      setDeleteDialog({ open: false, course: null });
+    } catch (err) {
+      console.error('delete course registrations failed', err);
+    }
   };
 
   // Selection handlers
@@ -270,7 +298,41 @@ export default function RegistrationBrowser() {
           <Grid container spacing={2}>
             {(coursesData?.courses || []).map(c => (
               <Grid item key={c._id} xs={12} sm={6} md={4} lg={3}>
-                <Card variant="outlined" sx={{ height: '100%' }}>
+                <Card
+                  variant="outlined"
+                  sx={{
+                    height: '100%',
+                    position: 'relative',
+                    overflow: 'visible',
+                    '&:hover .course-delete': { opacity: 1 },
+                  }}
+                >
+                  <Tooltip title="Remove all registrations" placement="left">
+                    <span>
+                      <IconButton
+                        size="small"
+                        color="error"
+                        className="course-delete"
+                        sx={{
+                          position: 'absolute',
+                          top: 8,
+                          right: 8,
+                          opacity: 0,
+                          transition: 'opacity 0.2s',
+                          bgcolor: 'background.paper',
+                          boxShadow: 2,
+                          zIndex: 2,
+                        }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setDeleteDialog({ open: true, course: c });
+                        }}
+                        disabled={deletingCourse}
+                      >
+                        <CloseIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
                   <CardActionArea onClick={() => setSelectedCourse({ id: c._id, code: c.code, title: c.title })}>
                     <CardContent>
                       <Stack direction="row" justifyContent="space-between" alignItems="center">
@@ -337,9 +399,9 @@ export default function RegistrationBrowser() {
             </Stack>
 
             {/* Errors */}
-            {(deleteErr || moveErr) && (
+            {(deleteErr || moveErr || deleteCourseErr) && (
               <Alert severity="error" sx={{ mt: 2 }}>
-                {deleteErr?.data?.message || deleteErr?.error || moveErr?.data?.message || moveErr?.error || 'Action failed.'}
+                {deleteErr?.data?.message || deleteErr?.error || moveErr?.data?.message || moveErr?.error || deleteCourseErr?.data?.message || deleteCourseErr?.error || 'Action failed.'}
               </Alert>
             )}
 
@@ -399,7 +461,7 @@ export default function RegistrationBrowser() {
                                 onClick={() => onDelete(s.regNo)}
                                 disabled={deleting}
                               >
-                                <DeleteIcon fontSize="small" />
+                                <CloseIcon fontSize="small" />
                               </IconButton>
                             </span>
                           </Tooltip>
@@ -493,6 +555,34 @@ export default function RegistrationBrowser() {
             onClick={onConfirmMove}
           >
             {moving ? 'Moving…' : 'Move'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={deleteDialog.open}
+        onClose={() => setDeleteDialog({ open: false, course: null })}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Remove Course Registrations</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2">
+            Remove all students registered in
+            {' '}
+            <strong>{deleteDialog.course?.code}</strong>
+            {' '}({deleteDialog.course?.title}) for session {filters.session}, semester {filters.semester}, level {filters.level}? This action cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialog({ open: false, course: null })}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleDeleteCourse}
+            disabled={deletingCourse}
+          >
+            {deletingCourse ? 'Removing…' : 'Remove All'}
           </Button>
         </DialogActions>
       </Dialog>

@@ -1,5 +1,6 @@
 import { configureStore } from "@reduxjs/toolkit";
 
+import { collegeApi } from "./api/collegeApi";
 import { lecturerApi } from "./api/lectureApi";
 import { courseApi } from "./api/courseApi";
 import { studentApi } from "./api/studentApi";
@@ -10,9 +11,17 @@ import {approvedCoursesApi} from "./api/approvedCoursesApi"
 import { graduationApi } from "./api/graduationApi"
 import { courseRegistrationApi } from "./api/courseRegistrationApi";
 import { registrationFormsApi } from "./api/registrationFormsApi";
+import { authApi } from "./api/authApi";
+import { approvalApi } from "./api/approvalApi";
+import { institutionApi } from "./api/institutionApi";
+import authReducer from "./features/authSlice";
+import envReducer from "./features/envSlice";
  
 const store = configureStore({
     reducer:{
+        auth: authReducer,
+        env: envReducer,
+        [collegeApi.reducerPath]: collegeApi.reducer,
         [lecturerApi.reducerPath]: lecturerApi.reducer,
         [courseApi.reducerPath]: courseApi.reducer,
         [studentApi.reducerPath]: studentApi.reducer,
@@ -23,11 +32,15 @@ const store = configureStore({
         [graduationApi.reducerPath]: graduationApi.reducer,
         [courseRegistrationApi.reducerPath]: courseRegistrationApi.reducer,
         [registrationFormsApi.reducerPath]: registrationFormsApi.reducer,
+        [authApi.reducerPath]: authApi.reducer,
+        [approvalApi.reducerPath]: approvalApi.reducer,
+        [institutionApi.reducerPath]: institutionApi.reducer,
     
     },
 
     middleware: (getDefaultMiddleWare) => {
         return getDefaultMiddleWare()
+            .concat(collegeApi.middleware)
             .concat(lecturerApi.middleware)
             .concat(courseApi.middleware)
             .concat(studentApi.middleware)
@@ -38,6 +51,9 @@ const store = configureStore({
             .concat(graduationApi.middleware)
             .concat(courseRegistrationApi.middleware)
             .concat(registrationFormsApi.middleware)
+            .concat(authApi.middleware)
+            .concat(approvalApi.middleware)
+            .concat(institutionApi.middleware)
     }
 })
 
@@ -145,10 +161,55 @@ export {
   useGetRegistrationStudentsQuery,
   useLazyGetRegistrationStudentsQuery,
   useDeleteRegisteredStudentMutation,
-   useMoveRegisteredStudentsMutation,
+  useMoveRegisteredStudentsMutation,
+  useDeleteCourseRegistrationsMutation,
 } from './api/courseRegistrationApi'
 
 export {
   // ...existing exports
   useGenerateRegistrationDataMutation,
 } from "./api/registrationFormsApi";
+
+export {
+  useLoginMutation,
+  useGetProfileQuery,
+  useUpdateProfileMutation,
+  useUpdatePasswordMutation,
+  useGetUsersQuery,
+  useCreateUserMutation,
+  useUpdateUserMutation,
+  useDeleteUserMutation,
+} from './api/authApi';
+
+export {
+  useGetPendingApprovalsQuery,
+} from './api/approvalApi';
+
+export {
+  useGetCollegesQuery,
+  useCreateCollegeMutation,
+  useUpdateCollegeMutation,
+  useDeleteCollegeMutation,
+  useCreateDepartmentMutation,
+  useUpdateDepartmentMutation,
+  useDeleteDepartmentMutation,
+  useGetDepartmentsQuery,
+  useGetProgrammesQuery,
+  useCreateProgrammeMutation,
+} from './api/institutionApi';
+
+export {
+  selectCurrentUser,
+  selectCurrentRoles,
+  selectCurrentToken,
+  logout,
+  setCredentials,
+} from './features/authSlice';
+
+export {
+  fetchEnvironment,
+  selectEnvMode,
+  selectEnvStatus,
+  selectEnvError,
+  selectIsReadOnly,
+} from './features/envSlice';

@@ -68,9 +68,9 @@ const useGraduatingListPDF = () => {
         doc.text(header.title || 'GRADUATING STUDENTS LIST', pageWidth / 2, 35, { align: 'center' });
 
         doc.setFont('times', 'normal'); doc.setFontSize(11);
-        doc.text(`College: ${header.college || 'Biological Sciences'}`, left, 42);
-        doc.text(`Department: ${header.department || 'Biochemistry'}`, left, 48.5);
-        doc.text(`Programme: ${header.programme || 'B. Sc. Biochemistry'}`, left, 55);
+        doc.text(`College: ${header.college || 'College Not Provided'}`, left, 42);
+        doc.text(`Department: ${header.department || 'Department Not Provided'}`, left, 48.5);
+        doc.text(`Programme: ${header.programme || 'Programme Not Provided'}`, left, 55);
 
         doc.text(`Level: 400`, pageWidth - right, 42, { align: 'right' });
         doc.text(`Semester: ${Number(formData.semester) === 1 ? 'First' : 'Second'}`, pageWidth - right, 48.5, { align: 'right' });

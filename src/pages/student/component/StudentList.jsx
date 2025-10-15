@@ -36,6 +36,7 @@ function StudentList({
   onViewDetails = () => {},
   levelFilter,
   statusFilter,
+  readOnly = false,
 }) {
   const [deleteStudent, { isLoading: isDeleting }] = useDeleteStudentMutation();
   const [openConfirm, setOpenConfirm] = useState(false);
@@ -83,6 +84,9 @@ function StudentList({
           student.regNo.toLowerCase().includes(term) ||
           student.firstname.toLowerCase().includes(term) ||
           student.surname.toLowerCase().includes(term) ||
+          (student.college?.name?.toLowerCase().includes(term)) ||
+          (student.department?.name?.toLowerCase().includes(term)) ||
+          (student.programme?.name?.toLowerCase().includes(term)) ||
           (student.status && student.status.toLowerCase().includes(term)) ||
           (student.standing && student.standing.toLowerCase().includes(term))
       );
@@ -101,6 +105,7 @@ function StudentList({
   };
 
   const handleDeleteClick = (student) => {
+    if (readOnly) return;
     setStudentToDelete(student);
     setOpenConfirm(true);
   };
@@ -111,6 +116,10 @@ function StudentList({
   };
 
   const handleConfirmDelete = async () => {
+    if (readOnly) {
+      handleCloseConfirm();
+      return;
+    }
     if (studentToDelete) {
       try {
         await deleteStudent({ id: studentToDelete._id }).unwrap();
@@ -267,6 +276,9 @@ function StudentList({
               <TableCell>S/N</TableCell>
               <TableCell>Full Name</TableCell>
               <TableCell>Registration No.</TableCell>
+              <TableCell>College</TableCell>
+              <TableCell>Department</TableCell>
+              <TableCell>Programme</TableCell>
               <TableCell>Level</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>Standing</TableCell>
@@ -296,6 +308,9 @@ function StudentList({
                     {`${student.surname} ${student.firstname} ${student.middlename || ""}`.trim()}
                   </TableCell>
                   <TableCell>{student.regNo}</TableCell>
+                  <TableCell>{student.college?.name || "—"}</TableCell>
+                  <TableCell>{student.department?.name || "—"}</TableCell>
+                  <TableCell>{student.programme?.name || "—"}</TableCell>
                   <TableCell>{levelDisplay}</TableCell>
                   <TableCell>
                     <Chip 
@@ -313,39 +328,47 @@ function StudentList({
                     />
                   </TableCell>
                   <TableCell align="right">
-                    <Tooltip title="Edit Standing">
-                      <IconButton
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onEditStanding(student);
-                        }}
-                        color="secondary"
-                      >
-                        <RuleIcon />
-                      </IconButton>
+                    <Tooltip title={readOnly ? "Unavailable in read-only mode" : "Edit Standing"}>
+                      <span>
+                        <IconButton
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onEditStanding(student);
+                          }}
+                          color="secondary"
+                          disabled={readOnly}
+                        >
+                          <RuleIcon />
+                        </IconButton>
+                      </span>
                     </Tooltip>
-                    <Tooltip title="Edit Student">
-                      <IconButton
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onEdit(student);
-                        }}
-                        color="primary"
-                      >
-                        <EditIcon />
-                      </IconButton>
+                    <Tooltip title={readOnly ? "Unavailable in read-only mode" : "Edit Student"}>
+                      <span>
+                        <IconButton
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onEdit(student);
+                          }}
+                          color="primary"
+                          disabled={readOnly}
+                        >
+                          <EditIcon />
+                        </IconButton>
+                      </span>
                     </Tooltip>
-                    <Tooltip title="Delete Student">
-                      <IconButton
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleDeleteClick(student);
-                        }}
-                        color="error"
-                        disabled={isDeleting && studentToDelete?._id === student._id}
-                      >
-                        {isDeleting && studentToDelete?._id === student._id ? <CircularProgress size={20} /> : <DeleteIcon />}
-                      </IconButton>
+                    <Tooltip title={readOnly ? "Unavailable in read-only mode" : "Delete Student"}>
+                      <span>
+                        <IconButton
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleDeleteClick(student);
+                          }}
+                          color="error"
+                          disabled={readOnly || (isDeleting && studentToDelete?._id === student._id)}
+                        >
+                          {isDeleting && studentToDelete?._id === student._id ? <CircularProgress size={20} /> : <DeleteIcon />}
+                        </IconButton>
+                      </span>
                     </Tooltip>
                   </TableCell>
                 </TableRow>
@@ -373,7 +396,7 @@ function StudentList({
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseConfirm}>Cancel</Button>
-          <Button onClick={handleConfirmDelete} color="error" autoFocus disabled={isDeleting}>
+          <Button onClick={handleConfirmDelete} color="error" autoFocus disabled={readOnly || isDeleting}>
             {isDeleting ? "Deleting..." : "Delete"}
           </Button>
         </DialogActions>

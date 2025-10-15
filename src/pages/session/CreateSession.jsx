@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   TextField,
   Button,
@@ -7,6 +7,7 @@ import {
   Paper,
   Snackbar,
   Alert,
+  AlertTitle,
   Stack,
   Box,
   CircularProgress,
@@ -20,9 +21,12 @@ import {
   DialogContent,
   DialogContentText,
   Tabs,
-  Tab
+  Tab,
+  Chip,
+  Tooltip
 } from '@mui/material';
 import { LoadingButton } from '@mui/lab';
+import { format } from 'date-fns';
 import {
   useCreateSessionMutation,
   useCloseSessionMutation,
@@ -77,6 +81,61 @@ const SessionManager = () => {
       })));
     }
   }, [lecturersData]);
+
+  const currentSession = useMemo(
+    () => sessions.find((session) => session.isCurrent) || null,
+    [sessions]
+  );
+
+  const currentCloseSummary = currentSession?.closeSummary || null;
+  const currentBlockers = (currentCloseSummary?.blockingReasons || []).filter(
+    Boolean
+  );
+  const blockersPreview = currentBlockers.slice(0, 2);
+  const canCloseCurrent = Boolean(currentCloseSummary?.canClose);
+  const currentStatus =
+    currentSession?.status ||
+    (currentSession?.isCurrent ? "active" : "completed");
+  const currentIsActive = String(currentStatus || "").toLowerCase() === "active";
+
+  const formatDateLabel = (value) => {
+    if (!value) return "—";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "—";
+    return format(date, "PP");
+  };
+
+  const periodLabel = currentSession
+    ? `${formatDateLabel(currentSession.startDate)} - ${
+        currentSession.endDate
+          ? formatDateLabel(currentSession.endDate)
+          : "Present"
+      }`
+    : "";
+
+  const closeCheckedAt = currentCloseSummary?.checkedAt
+    ? (() => {
+        const dt = new Date(currentCloseSummary.checkedAt);
+        return Number.isNaN(dt.getTime()) ? null : format(dt, "PPpp");
+      })()
+    : null;
+
+  const readinessChipLabel = currentCloseSummary
+    ? canCloseCurrent
+      ? "Ready to close"
+      : "Awaiting tasks"
+    : "No readiness data";
+  const readinessChipColor = currentCloseSummary
+    ? canCloseCurrent
+      ? "primary"
+      : "warning"
+    : "default";
+  const readinessTooltip = currentCloseSummary
+    ? canCloseCurrent
+      ? "All prerequisites satisfied. You can close the current session."
+      : currentBlockers[0] ||
+        "Complete outstanding result processing tasks before closing."
+    : "Close readiness data will appear once results processing begins.";
 
   const simulateProgress = async () => {
     setProgressDialogOpen(true);
@@ -193,6 +252,133 @@ const SessionManager = () => {
 
   return (
     <Box>
+      {!isSessionsLoading && currentSession && (
+        <Paper
+          elevation={0}
+          variant="outlined"
+          sx={{ p: 3, mb: 3, borderRadius: 2 }}
+        >
+          <Stack
+            direction={{ xs: "column", md: "row" }}
+            spacing={3}
+            alignItems={{ xs: "flex-start", md: "center" }}
+            justifyContent="space-between"
+            useFlexGap
+          >
+            <Box>
+              <Typography variant="overline" color="text.secondary">
+                Current Session
+              </Typography>
+              <Typography variant="h5">{currentSession.sessionTitle}</Typography>
+              <Stack
+                direction="row"
+                spacing={1}
+                useFlexGap
+                sx={{ mt: 1, flexWrap: "wrap" }}
+              >
+                <Chip
+                  label={currentIsActive ? "Active" : "Completed"}
+                  color={currentIsActive ? "success" : "default"}
+                  size="small"
+                />
+                <Tooltip title={readinessTooltip} arrow>
+                  <Chip
+                    label={readinessChipLabel}
+                    color={readinessChipColor}
+                    variant={canCloseCurrent ? "filled" : "outlined"}
+                    size="small"
+                  />
+                </Tooltip>
+              </Stack>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                {periodLabel}
+              </Typography>
+            </Box>
+
+            <Stack spacing={1} sx={{ minWidth: { md: 280 } }}>
+              <Alert
+                severity={
+                  currentCloseSummary
+                    ? canCloseCurrent
+                      ? "success"
+                      : "warning"
+                    : "info"
+                }
+              >
+                <AlertTitle>
+                  {currentCloseSummary
+                    ? canCloseCurrent
+                      ? "Ready to close"
+                      : "Pending tasks"
+                    : "Awaiting readiness data"}
+                </AlertTitle>
+                {currentCloseSummary ? (
+                  canCloseCurrent ? (
+                    <Typography variant="body2">
+                      All prerequisites are satisfied. You can end the current
+                      session when ready.
+                    </Typography>
+                  ) : (
+                    <>
+                      {blockersPreview.length > 0 ? (
+                        <Box component="ul" sx={{ pl: 3, mb: 0 }}>
+                          {blockersPreview.map((reason) => (
+                            <Box component="li" key={reason}>
+                              <Typography variant="body2">{reason}</Typography>
+                            </Box>
+                          ))}
+                        </Box>
+                      ) : (
+                        <Typography variant="body2">
+                          Complete outstanding result processing to enable
+                          session closure.
+                        </Typography>
+                      )}
+                      {currentBlockers.length > blockersPreview.length && (
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ mt: 0.5 }}
+                        >
+                          +
+                          {currentBlockers.length - blockersPreview.length} more
+                          to resolve
+                        </Typography>
+                      )}
+                    </>
+                  )
+                ) : (
+                  <Typography variant="body2">
+                    Close readiness data will appear once results processing
+                    begins.
+                  </Typography>
+                )}
+                {closeCheckedAt && (
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    display="block"
+                    sx={{ mt: 1 }}
+                  >
+                    Checked {closeCheckedAt}
+                  </Typography>
+                )}
+              </Alert>
+              <Button
+                variant="outlined"
+                onClick={() => {
+                  setCreatedSession(currentSession);
+                  setViewMode("details");
+                  setActiveTab(0);
+                }}
+              >
+                Manage Session
+              </Button>
+            </Stack>
+          </Stack>
+        </Paper>
+      )}
+
       <Tabs value={activeTab} onChange={handleTabChange} sx={{ mb: 3 }}>
         <Tab label="Create New Session" />
         <Tab label="View All Sessions" />

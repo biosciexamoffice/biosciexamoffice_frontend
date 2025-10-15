@@ -103,7 +103,11 @@ function CourseList({
         semesterText.includes(q) ||
         norm(c.semester).includes(q) ||
         optionText.includes(q) ||
-        norm(c.option).includes(q)
+        norm(c.option).includes(q) ||
+        norm(c.programmeType).includes(q) ||
+        (c.college?.name && norm(c.college.name).includes(q)) ||
+        (c.department?.name && norm(c.department.name).includes(q)) ||
+        (c.programme?.name && norm(c.programme.name).includes(q))
       );
     });
   }, [courses, query]);
@@ -185,7 +189,7 @@ function CourseList({
         <TextField
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by title, code, UAM ID, level, semester, option…"
+          placeholder="Search by title, code, college, programme, level, semester, option…"
           size="small"
           fullWidth
           InputProps={{
@@ -231,6 +235,10 @@ function CourseList({
             }}>
               <TableCell sx={{ fontWeight: 700 }}>Title</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Code</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>College</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Department</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Programme</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>Programme Type</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>UAM ID</TableCell>
               <TableCell align="right" sx={{ fontWeight: 700 }}>Unit</TableCell>
               <TableCell align="right" sx={{ fontWeight: 700 }}>Level</TableCell>
@@ -242,7 +250,7 @@ function CourseList({
           <TableBody>
             {pagedCourses.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} align="center" sx={{ py: 6 }}>
+                <TableCell colSpan={12} align="center" sx={{ py: 6 }}>
                   <Typography variant="body1">
                     No results for “{query}”.
                   </Typography>
@@ -275,8 +283,24 @@ function CourseList({
                     />
                   </TableCell>
                   <TableCell>
+                    {course.college?.name || course.collegeName || "—"}
+                  </TableCell>
+                  <TableCell>
+                    {course.department?.name || course.departmentName || "—"}
+                  </TableCell>
+                  <TableCell>
+                    {course.programme?.name || course.programmeName || "—"}
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={course.programmeType || course.programme?.degreeType || "—"}
+                      size="small"
+                      variant="outlined"
+                    />
+                  </TableCell>
+                  <TableCell>
                     <Chip 
-                      label={course.uamId} 
+                      label={course.uamId || "—"} 
                       size="small" 
                       variant="outlined"
                     />

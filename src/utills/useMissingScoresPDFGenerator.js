@@ -198,12 +198,12 @@ const useMissingScoresPDFGenerator = () => {
       doc.setFont("times", "bold");
 
       const metadata = [
-        [`College: ${college || "Biological Sciences"}`, `Level: ${level ?? ""}`],
+        [`College: ${college || "College Not Provided"}`, `Level: ${level ?? ""}`],
         [
-          `Department: ${department || "Biochemistry"}`,
+          `Department: ${department || "Department Not Provided"}`,
           `Semester: ${semester === 1 ? "First" : "Second"}`,
         ],
-        [`Programme: ${programme || "B. Sc. Biochemistry"}`, `Session: ${session ?? ""}`],
+        [`Programme: ${programme || "Programme Not Provided"}`, `Session: ${session ?? ""}`],
       ];
 
       const rightColumnX = pageWidth / 2 + 20;

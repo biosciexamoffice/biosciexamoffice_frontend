@@ -36,8 +36,9 @@ import {
 } from "../../../store";
 import ResultDetailsModal from "./ResultDetailsModal";
 
-function ResultList({ courses, allResults, isLoading, isError, onEdit }) {
+function ResultList({ courses, allResults, isLoading, isError, onEdit, readOnly = false }) {
   const theme = useTheme();
+  const showActions = !readOnly;
 
   const [deleteResult, { isLoading: isDeleting }] = useDeleteResultMutation();
   const [deleteAllResultsForCourse, { isLoading: isDeletingAll }] = useDeleteAllResultsForCourseMutation();
@@ -132,15 +133,19 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit }) {
 
   // actions
   const handleDeleteClick = (result) => {
+    if (!showActions) return;
     setResultToDelete(result);
     setOpenConfirm(true);
   };
-  const handleDeleteAllForCourseClick = () => setOpenConfirmCourseDelete(true);
+  const handleDeleteAllForCourseClick = () => {
+    if (!showActions) return;
+    setOpenConfirmCourseDelete(true);
+  };
   const handleCloseConfirm = () => { setOpenConfirm(false); setResultToDelete(null); };
   const handleCloseConfirmCourseDelete = () => setOpenConfirmCourseDelete(false);
 
   const handleConfirmDelete = async () => {
-    if (!resultToDelete) return;
+    if (!showActions || !resultToDelete) return;
     try {
       await deleteResult(resultToDelete._id).unwrap();
     } catch (err) {
@@ -151,7 +156,7 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit }) {
   };
 
   const handleConfirmDeleteAllForCourse = async () => {
-    if (!selectedCourse) return;
+    if (!showActions || !selectedCourse) return;
     try {
       await deleteAllResultsForCourse({
         id: selectedCourse._id,
@@ -236,6 +241,7 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit }) {
   };
 
   const handleConfirmModeration = async () => {
+    if (!showActions) return;
     if (!resultToModerate) return;
     const gt = Number(newGrandTotal);
     if (Number.isNaN(gt)) {
@@ -288,7 +294,7 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit }) {
   };
 
   const handleApproveModeration = async (result) => {
-    if (!result) return;
+    if (!showActions || !result) return;
     const merged = mergeWithOverride(result);
     setApprovingId(result._id);
     try {
@@ -335,7 +341,7 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit }) {
   };
 
   const handleRejectModeration = async (result) => {
-    if (!result) return;
+    if (!showActions || !result) return;
     const merged = mergeWithOverride(result);
     setRejectingId(result._id);
     try {
@@ -632,10 +638,12 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit }) {
           </Box>
           <Stack direction="row" spacing={1}>
             {resultsForSelectedCourse.length > 0 && (
-              <Tooltip title="Delete all results for this course">
-                <IconButton onClick={handleDeleteAllForCourseClick} color="error">
-                  <DeleteForeverIcon />
-                </IconButton>
+              <Tooltip title={showActions ? "Delete all results for this course" : "Unavailable in read-only mode"}>
+                <span>
+                  <IconButton onClick={handleDeleteAllForCourseClick} color="error" disabled={!showActions}>
+                    <DeleteForeverIcon />
+                  </IconButton>
+                </span>
               </Tooltip>
             )}
             <IconButton onClick={() => { setSelectedCourse(null); setResultQuery(""); }} aria-label="close">
@@ -746,76 +754,88 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit }) {
                             )}
                           </TableCell>
                           <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                            <Tooltip title="Moderate (edit grand total)">
-                              <IconButton onClick={() => openModeration(result)}>
-                                <GavelIcon />
-                              </IconButton>
-                            </Tooltip>
-                            {isPending && (
+                            {showActions ? (
                               <>
-                                <Tooltip title="Approve moderation">
+                                <Tooltip title="Moderate (edit grand total)">
                                   <span>
-                                    <IconButton
-                                      onClick={() => handleApproveModeration(result)}
-                                      color="success"
-                                      disabled={approveLoading || rejectLoading}
-                                    >
-                                      {approveLoading ? (
-                                        <CircularProgress size={20} />
-                                      ) : (
-                                        <ApproveIcon />
-                                      )}
+                                    <IconButton onClick={() => openModeration(result)}>
+                                      <GavelIcon />
                                     </IconButton>
                                   </span>
                                 </Tooltip>
-                                <Tooltip title="Reject moderation">
+                                {isPending && (
+                                  <>
+                                    <Tooltip title="Approve moderation">
+                                      <span>
+                                        <IconButton
+                                          onClick={() => handleApproveModeration(result)}
+                                          color="success"
+                                          disabled={approveLoading || rejectLoading}
+                                        >
+                                          {approveLoading ? (
+                                            <CircularProgress size={20} />
+                                          ) : (
+                                            <ApproveIcon />
+                                          )}
+                                        </IconButton>
+                                      </span>
+                                    </Tooltip>
+                                    <Tooltip title="Reject moderation">
+                                      <span>
+                                        <IconButton
+                                          onClick={() => handleRejectModeration(result)}
+                                          color="error"
+                                          disabled={approveLoading || rejectLoading}
+                                        >
+                                          {rejectLoading ? (
+                                            <CircularProgress size={20} />
+                                          ) : (
+                                            <RejectIcon />
+                                          )}
+                                        </IconButton>
+                                      </span>
+                                    </Tooltip>
+                                  </>
+                                )}
+                                {isApproved && (
+                                  <Tooltip title="Unapprove moderation (revert to original)">
+                                    <span>
+                                      <IconButton
+                                        onClick={() => handleRejectModeration(result)}
+                                        color="warning"
+                                        disabled={rejectLoading}
+                                      >
+                                        {rejectLoading ? (
+                                          <CircularProgress size={20} />
+                                        ) : (
+                                          <UndoIcon />
+                                        )}
+                                      </IconButton>
+                                    </span>
+                                  </Tooltip>
+                                )}
+                                <Tooltip title="Edit Scores">
+                                  <span>
+                                    <IconButton onClick={() => onEdit(result)} color="primary">
+                                      <EditIcon />
+                                    </IconButton>
+                                  </span>
+                                </Tooltip>
+                                <Tooltip title="Delete Result">
                                   <span>
                                     <IconButton
-                                      onClick={() => handleRejectModeration(result)}
+                                      onClick={() => handleDeleteClick(result)}
                                       color="error"
-                                      disabled={approveLoading || rejectLoading}
+                                      disabled={isDeleting && resultToDelete?._id === result._id}
                                     >
-                                      {rejectLoading ? (
-                                        <CircularProgress size={20} />
-                                      ) : (
-                                        <RejectIcon />
-                                      )}
+                                      {isDeleting && resultToDelete?._id === result._id ? <CircularProgress size={20} /> : <DeleteIcon />}
                                     </IconButton>
                                   </span>
                                 </Tooltip>
                               </>
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">Read-only</Typography>
                             )}
-                            {isApproved && (
-                              <Tooltip title="Unapprove moderation (revert to original)">
-                                <span>
-                                  <IconButton
-                                    onClick={() => handleRejectModeration(result)}
-                                    color="warning"
-                                    disabled={rejectLoading}
-                                  >
-                                    {rejectLoading ? (
-                                      <CircularProgress size={20} />
-                                    ) : (
-                                      <UndoIcon />
-                                    )}
-                                  </IconButton>
-                                </span>
-                              </Tooltip>
-                            )}
-                            <Tooltip title="Edit Scores">
-                              <IconButton onClick={() => onEdit(result)} color="primary">
-                                <EditIcon />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Delete Result">
-                              <IconButton
-                                onClick={() => handleDeleteClick(result)}
-                                color="error"
-                                disabled={isDeleting && resultToDelete?._id === result._id}
-                              >
-                                {isDeleting && resultToDelete?._id === result._id ? <CircularProgress size={20} /> : <DeleteIcon />}
-                              </IconButton>
-                            </Tooltip>
                           </TableCell>
                         </TableRow>
                       );
@@ -907,6 +927,7 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit }) {
             color="error"
             variant="contained"
             disabled={
+              readOnly ||
               isUpdating ||
               newGrandTotal === "" ||
               moderationPfNo.trim() === "" ||
@@ -936,7 +957,7 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit }) {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseConfirm}>Cancel</Button>
-          <Button onClick={handleConfirmDelete} color="error" autoFocus disabled={isDeleting}>
+          <Button onClick={handleConfirmDelete} color="error" autoFocus disabled={readOnly || isDeleting}>
             {isDeleting ? "Deleting..." : "Delete"}
           </Button>
         </DialogActions>
@@ -959,7 +980,7 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit }) {
             onClick={handleConfirmDeleteAllForCourse}
             color="error"
             autoFocus
-            disabled={isDeletingAll}
+            disabled={readOnly || isDeletingAll}
             startIcon={isDeletingAll ? <CircularProgress size={20} /> : null}
           >
             {isDeletingAll ? "Deleting..." : "Delete All"}

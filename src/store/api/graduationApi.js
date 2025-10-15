@@ -1,24 +1,25 @@
 // store/apis/graduationApi.js
-import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+import { createApi } from '@reduxjs/toolkit/query/react';
+import baseQuery from './baseQuery';
 
 export const graduationApi = createApi({
   reducerPath: 'graduationApi',
-  baseQuery: fetchBaseQuery({ baseUrl: 'http://localhost:10000' }),
+  baseQuery,
   tagTypes: ['Graduation'],
   endpoints: (builder) => ({
     getGraduationAvailability: builder.query({
-      query: ({ level }) => ({ url: '/api/graduation/available', params: { level } }),
+      query: ({ level }) => ({ url: '/graduation/available', params: { level } }),
     }),
     getGraduatingList: builder.query({
       query: ({ session, semester, level = 400 }) => ({
-        url: '/api/graduation/list',
+        url: '/graduation/list',
         params: { session, semester, level },
       }),
       providesTags: ['Graduation'],
     }),
     finalizeGraduation: builder.mutation({
       query: (body) => ({
-        url: '/api/graduation/finalize',
+        url: '/graduation/finalize',
         method: 'POST',
         body,
       }),

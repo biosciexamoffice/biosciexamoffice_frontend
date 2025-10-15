@@ -309,6 +309,18 @@ function StudentDetailsDialog({ studentId, open, onClose }) {
                     {infoRow("Level", student.level)}
                   </Grid>
                   <Grid item xs={12} sm={6}>
+                    {infoRow("College", student.college?.name)}
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    {infoRow("Department", student.department?.name)}
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    {infoRow("Programme", student.programme?.name)}
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    {infoRow("Programme Type", student.programme?.degreeType)}
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
                     {infoRow(
                       "Created",
                       new Date(student.createdAt).toLocaleDateString()

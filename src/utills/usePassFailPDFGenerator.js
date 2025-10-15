@@ -116,9 +116,9 @@ const usePassFailPDFGenerator = () => {
       const rowGap = 7;
 
       const leftPairs = [
-        ['College:',   data.college   || 'Biological Sciences'],
-        ['Department:',data.department|| 'Biochemistry'],
-        ['Programme:', data.programme || 'B. Sc. Biochemistry'],
+        ['College:',   data.college   || 'College Not Provided'],
+        ['Department:',data.department|| 'Department Not Provided'],
+        ['Programme:', data.programme || 'Programme Not Provided'],
       ];
 
       const rightPairs = [

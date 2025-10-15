@@ -149,9 +149,9 @@ const useResultPDFGenerator = () => {
       const leftValueX = leftLabelX + 28;
       drawMetaBlock(
         [
-          ['College:', data?.college || 'Biological Sciences'],
-          ['Department:', data?.department || 'Biochemistry'],
-          ['Programme:', data?.programme || 'B. Sc. Biochemistry']
+          ['College:', data?.college || 'College Not Provided'],
+          ['Department:', data?.department || 'Department Not Provided'],
+          ['Programme:', data?.programme || 'Programme Not Provided']
         ],
         leftLabelX,
         leftValueX,

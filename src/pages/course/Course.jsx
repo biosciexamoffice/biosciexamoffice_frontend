@@ -1,17 +1,22 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useSelector } from "react-redux";
 import {
   useCreateCourseMutation,
   useGetAllCoursesQuery,
+  useGetCollegesQuery,
+  useGetProgrammesQuery,
 } from "../../store/index";
 import CreateCourse from "./component/CreateCourse";
 import CourseList from "./component/CourseList";
 import CourseUpload from "./component/CourseUpload";
 import EditCourse from "./component/EditCourse";
 import DashboardSummary from "./component/ui/DashboardSummary";
-import CourseRegistrationUpload from "./component/CourseRegistrationUpload"
+import CourseRegistrationUpload from "./component/CourseRegistrationUpload";
 import ApprovedCourses from "./component/ApprovedCourses";
 import RegistrationFormGenerator from "./component/RegistrationFormGenerator";
-import RegistrationBrowser from "./component/RegistrationBrowser"
+import RegistrationBrowser from "./component/RegistrationBrowser";
+import { selectCurrentUser, selectCurrentRoles } from "../../store/features/authSlice";
+import { filterInstitutionsForUser } from "../../utills/filterInstitutions";
 
 import {
   Box,
@@ -57,6 +62,25 @@ function Course() {
     isError: errorAllCourse,
     refetch: refetchCourses,
   } = useGetAllCoursesQuery();
+  const {
+    data: collegesData,
+    isLoading: isLoadingColleges,
+  } = useGetCollegesQuery();
+  const {
+    data: programmesData,
+    isLoading: isLoadingProgrammes,
+  } = useGetProgrammesQuery();
+
+  const colleges = useMemo(() => collegesData?.colleges || [], [collegesData]);
+  const programmes = useMemo(() => programmesData?.programmes || [], [programmesData]);
+
+  const user = useSelector(selectCurrentUser);
+  const roles = useSelector(selectCurrentRoles);
+
+  const { colleges: scopedColleges, programmes: scopedProgrammes } = useMemo(
+    () => filterInstitutionsForUser(colleges, programmes, user, roles),
+    [colleges, programmes, user, roles]
+  );
 
   // Auto-refresh data when switching views
   useEffect(() => {
@@ -103,14 +127,35 @@ function Course() {
             onCreate={handleCreateCourse}
             isLoading={isCreating}
             error={createError?.data?.message}
+            colleges={scopedColleges}
+            programmes={scopedProgrammes}
+            isLoadingInstitutions={isLoadingColleges || isLoadingProgrammes}
           />
         );
       case "upload":
-        return <CourseUpload />;
+        return (
+          <CourseUpload
+            colleges={scopedColleges}
+            programmes={scopedProgrammes}
+            isLoadingInstitutions={isLoadingColleges || isLoadingProgrammes}
+          />
+        );
       case "approved": // Add this case
-        return <ApprovedCourses />;
+        return (
+          <ApprovedCourses
+            colleges={scopedColleges}
+            programmes={scopedProgrammes}
+            isLoadingInstitutions={isLoadingColleges || isLoadingProgrammes}
+          />
+        );
       case "registration-upload":
-        return <CourseRegistrationUpload />;
+        return (
+          <CourseRegistrationUpload
+            colleges={scopedColleges}
+            programmes={scopedProgrammes}
+            isLoadingInstitutions={isLoadingColleges || isLoadingProgrammes}
+          />
+        );
       case "registrations":
         return <RegistrationBrowser />;
       case "Course Registration":
@@ -266,6 +311,9 @@ function Course() {
           course={selectedCourse}
           open={isEditModalOpen}
           onClose={handleCloseEditModal}
+          colleges={scopedColleges}
+          programmes={scopedProgrammes}
+          isLoadingInstitutions={isLoadingColleges || isLoadingProgrammes}
         />
       )}
     </Box>

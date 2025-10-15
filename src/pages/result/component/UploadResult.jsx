@@ -11,7 +11,7 @@ import {
   RestartAlt as RestartAltIcon,
   Download as DownloadIcon,
 } from "@mui/icons-material";
-import { useUploadResultsMutation, useGetAllCoursesQuery, useGetSessionsQuery } from '../../../store/index';
+import { useUploadResultsMutation, useGetAllCoursesQuery, useGetSessionsQuery, useGetCollegesQuery } from '../../../store/index';
 
 function formatBytes(bytes = 0) {
   if (!bytes) return '0 B';
@@ -51,6 +51,17 @@ export default function UploadResult() {
   const [startedAt, setStartedAt] = useState(null);
   const lastLoadedRef = useRef(0);
   const lastTimeRef = useRef(0);
+  const { data: collegesData } = useGetCollegesQuery();
+  const departmentOptions = useMemo(() => {
+    if (!collegesData?.colleges) return [];
+    return collegesData.colleges.flatMap((college) =>
+      (college.departments || []).map((department) => ({
+        id: department.id,
+        name: department.name,
+        collegeName: college.name,
+      }))
+    );
+  }, [collegesData]);
 
   const [inputs, setInputs] = useState(() => {
     // persist last used values (nice QoL)
@@ -73,6 +84,16 @@ export default function UploadResult() {
   useEffect(() => {
     localStorage.setItem('upload_form', JSON.stringify(inputs));
   }, [inputs]);
+
+  useEffect(() => {
+    if (!departmentOptions.length) return;
+    setInputs((prev) => {
+      if (prev.department && departmentOptions.some((dept) => dept.name === prev.department)) {
+        return prev;
+      }
+      return { ...prev, department: departmentOptions[0].name };
+    });
+  }, [departmentOptions]);
 
   const handleInputs = e => {
     const { name, value } = e.target;
@@ -283,12 +304,25 @@ export default function UploadResult() {
             </Grid>
 
             <Grid item xs={12} md={6}>
-              <TextField select label="Department" name="department" value={inputs.department} onChange={handleInputs} required fullWidth>
+              <TextField
+                select
+                label="Department"
+                name="department"
+                value={inputs.department}
+                onChange={handleInputs}
+                required
+                fullWidth
+                disabled={!departmentOptions.length}
+              >
                 <MenuItem value="" disabled><em>Select Department</em></MenuItem>
-                <MenuItem value="biochemistry">Biochemistry</MenuItem>
-                <MenuItem value="microbiology">Microbiology</MenuItem>
-                <MenuItem value="zoology">Zoology</MenuItem>
-                <MenuItem value="botany">Botany</MenuItem>
+                {departmentOptions.length === 0 && (
+                  <MenuItem value="" disabled>No departments available</MenuItem>
+                )}
+                {departmentOptions.map((dept) => (
+                  <MenuItem key={dept.id} value={dept.name}>
+                    {dept.name}{dept.collegeName ? ` • ${dept.collegeName}` : ''}
+                  </MenuItem>
+                ))}
               </TextField>
             </Grid>
             <Grid item xs={12} md={6}>

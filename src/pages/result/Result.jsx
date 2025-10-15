@@ -1,9 +1,11 @@
 import { useState, useEffect, useMemo } from "react";
+import { useSelector } from "react-redux";
 
 // use the barrel you already have (works in your repo)
 import {
   useGetAllResultsQuery,
   useGetSessionsQuery,
+  selectIsReadOnly,
 } from "../../store";
 
 // Existing components
@@ -22,7 +24,8 @@ import {
   Typography, List, ListItemText, Drawer, ListItemButton, ListItemIcon,
   Toolbar, useTheme, useMediaQuery, IconButton, AppBar, CssBaseline,
   Badge, Box, Divider, Avatar, Stack, styled, Paper, Grid, Button,
-  Chip, TextField, MenuItem, InputAdornment, Tabs, Tab, Card, CardActionArea
+  Chip, TextField, MenuItem, InputAdornment, Tabs, Tab, Card, CardActionArea,
+  Alert, Snackbar
 } from "@mui/material";
 import {
   CloudUpload as CloudUploadIcon,
@@ -43,6 +46,7 @@ import {
 } from "@mui/icons-material";
 
 const drawerWidth = 260;
+const RESTRICTED_RESULT_VIEWS = new Set(['quick', 'compute', 'upload', 'create', 'uploadOld', 'search']);
 
 const StyledBadge = styled(Badge)(({ theme }) => ({
   '& .MuiBadge-badge': {
@@ -70,10 +74,10 @@ function StatCard({ icon, label, value, hint }) {
   );
 }
 
-function QuickAction({ icon, title, sub, onClick, color = 'primary' }) {
+function QuickAction({ icon, title, sub, onClick, color = 'primary', disabled = false }) {
   return (
-    <Card variant="outlined" sx={{ height: '100%' }}>
-      <CardActionArea onClick={onClick} sx={{ p: 2 }}>
+    <Card variant="outlined" sx={{ height: '100%', opacity: disabled ? 0.6 : 1 }}>
+      <CardActionArea onClick={disabled ? undefined : onClick} sx={{ p: 2 }} disabled={disabled}>
         <Stack direction="row" spacing={2} alignItems="flex-start">
           <Avatar variant="rounded" sx={{ bgcolor: `${color}.light`, color: `${color}.main` }}>
             {icon}
@@ -81,6 +85,11 @@ function QuickAction({ icon, title, sub, onClick, color = 'primary' }) {
           <Box>
             <Typography fontWeight={700}>{title}</Typography>
             <Typography variant="body2" color="text.secondary">{sub}</Typography>
+            {disabled && (
+              <Typography variant="caption" color="text.secondary">
+                Unavailable in read-only mode
+              </Typography>
+            )}
           </Box>
         </Stack>
       </CardActionArea>
@@ -92,20 +101,44 @@ function ResultDashboard() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileOpen, setMobileOpen] = useState(false);
+  const readOnly = useSelector(selectIsReadOnly);
+  const [readOnlyFeedback, setReadOnlyFeedback] = useState('');
 
   // views: dashboard, list, compute, upload, search, download, create, quick
   const [view, setView] = useState(() => localStorage.getItem('rd_view') || "dashboard");
   useEffect(() => localStorage.setItem('rd_view', view), [view]);
 
+  const guardReadOnly = (message) => {
+    if (!readOnly) return false;
+    setReadOnlyFeedback(message || 'This feature is unavailable in read-only mode. Connect to the office network to make changes.');
+    return true;
+  };
+
   // sub-view for List: repository (tree) | cards | table
   const [listMode, setListMode] = useState(() => localStorage.getItem('rd_list_mode') || 'repository');
   useEffect(() => localStorage.setItem('rd_list_mode', listMode), [listMode]);
+  useEffect(() => {
+    if (readOnly && listMode === 'table') {
+      setListMode('repository');
+    }
+  }, [readOnly, listMode]);
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedResult, setSelectedResult] = useState(null);
 
   const { data: allResultsForDashboard = [], isLoading: isLoadingDashboard } = useGetAllResultsQuery();
   const { data: sessions = [] } = useGetSessionsQuery();
+
+  const handleViewChange = (nextView, closeDrawer = false) => {
+    if (readOnly && RESTRICTED_RESULT_VIEWS.has(nextView)) {
+      guardReadOnly();
+      return;
+    }
+    setView(nextView);
+    if (closeDrawer) {
+      setMobileOpen(false);
+    }
+  };
 
   // Derive course aggregates from results
   const coursesWithResults = useMemo(() => {
@@ -174,7 +207,11 @@ function ResultDashboard() {
   const totalCourses = coursesWithResults.length || 0;
   const avgPerCourse = totalCourses ? Math.round(totalResults / totalCourses) : 0;
 
-  const handleEditClick = (result) => { setSelectedResult(result); setIsEditModalOpen(true); };
+  const handleEditClick = (result) => {
+    if (guardReadOnly()) return;
+    setSelectedResult(result);
+    setIsEditModalOpen(true);
+  };
   const handleCloseEditModal = () => { setIsEditModalOpen(false); setSelectedResult(null); };
   const handleDrawerToggle = () => setMobileOpen(!mobileOpen);
 
@@ -183,12 +220,18 @@ function ResultDashboard() {
     <>
       <Tabs
         value={listMode}
-        onChange={(_, v) => setListMode(v)}
+        onChange={(_, v) => {
+          if (readOnly && v === 'table') {
+            guardReadOnly();
+            return;
+          }
+          setListMode(v);
+        }}
         sx={{ mb: 2 }}
       >
         <Tab value="repository" icon={<ViewListIcon />} iconPosition="start" label="Repository View" />
         <Tab value="cards" icon={<AppsIcon />} iconPosition="start" label="Cards View" />
-        <Tab value="table" icon={<TableViewIcon />} iconPosition="start" label="Table View" />
+        <Tab value="table" icon={<TableViewIcon />} iconPosition="start" label="Table View" disabled={readOnly} />
       </Tabs>
 
       {listMode === 'repository' && (
@@ -197,6 +240,7 @@ function ResultDashboard() {
           allResults={allResultsForDashboard}
           isLoading={isLoadingDashboard}
           onEdit={handleEditClick}
+          readOnly={readOnly}
         />
       )}
 
@@ -205,7 +249,7 @@ function ResultDashboard() {
           {filteredCourses.map(course => (
             <Grid item xs={12} sm={6} md={4} lg={3} key={`${course._id}-${course.session}-${course.level}-${course.semester}`}>
               <Card variant="outlined">
-                <CardActionArea onClick={() => setView('search')}>
+                <CardActionArea onClick={() => handleViewChange('search')}>
                   <Box sx={{ p:2 }}>
                     <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
                       <Avatar variant="rounded" sx={{ width: 28, height: 28, bgcolor: 'primary.light', color: 'primary.main' }}>{(course.code || 'C')[0]}</Avatar>
@@ -239,6 +283,13 @@ function ResultDashboard() {
   );
 
   const renderContent = () => {
+    if (readOnly && RESTRICTED_RESULT_VIEWS.has(view)) {
+      return (
+        <Alert severity="warning">
+          {`The ${view} workspace is unavailable while connected to the read-only replica.`}
+        </Alert>
+      );
+    }
     switch (view) {
       case "list": return ListContent;
       case "compute": return <ResultComputation viewOnly />;
@@ -263,11 +314,11 @@ function ResultDashboard() {
               </Grid>
               <Grid item xs={12} md={4}>
                 <Grid container spacing={2}>
-                  <Grid item xs={12}><QuickAction icon={<CloudUploadIcon />} title="Upload Results" sub="Import from CSV/Excel" onClick={() => setView('upload')} /></Grid>
-                  <Grid item xs={6}><QuickAction icon={<AssessmentIcon />} title="Compute" sub="Generate metrics" onClick={() => setView('compute')} color="secondary" /></Grid>
-                  <Grid item xs={6}><QuickAction icon={<SearchIcon />} title="Search" sub="Find any record" onClick={() => setView('search')} color="secondary" /></Grid>
-                  <Grid item xs={6}><QuickAction icon={<TuneIcon />} title="Quick Compute" sub="Get + filter by GPA/CGPA" onClick={() => setView('quick')} color="secondary" /></Grid>
-                  <Grid item xs={6}><QuickAction icon={<BoltIcon />} title="Create Result" sub="Enter a single record" onClick={() => setView('create')} /></Grid>
+                  <Grid item xs={12}><QuickAction icon={<CloudUploadIcon />} title="Upload Results" sub="Import from CSV/Excel" onClick={() => handleViewChange('upload')} disabled={readOnly && RESTRICTED_RESULT_VIEWS.has('upload')} /></Grid>
+                  <Grid item xs={6}><QuickAction icon={<AssessmentIcon />} title="Compute" sub="Generate metrics" onClick={() => handleViewChange('compute')} color="secondary" disabled={readOnly && RESTRICTED_RESULT_VIEWS.has('compute')} /></Grid>
+                  <Grid item xs={6}><QuickAction icon={<SearchIcon />} title="Search" sub="Find any record" onClick={() => handleViewChange('search')} color="secondary" disabled={readOnly && RESTRICTED_RESULT_VIEWS.has('search')} /></Grid>
+                  <Grid item xs={6}><QuickAction icon={<TuneIcon />} title="Quick Compute" sub="Get + filter by GPA/CGPA" onClick={() => handleViewChange('quick')} color="secondary" disabled={readOnly && RESTRICTED_RESULT_VIEWS.has('quick')} /></Grid>
+                  <Grid item xs={6}><QuickAction icon={<BoltIcon />} title="Create Result" sub="Enter a single record" onClick={() => handleViewChange('create')} disabled={readOnly && RESTRICTED_RESULT_VIEWS.has('create')} /></Grid>
                 </Grid>
               </Grid>
             </Grid>
@@ -276,13 +327,13 @@ function ResultDashboard() {
             <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
               <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
                 <Typography variant="h6">Recent Activity</Typography>
-                <Button size="small" onClick={() => setView('list')}>Open Repository</Button>
+                <Button size="small" onClick={() => handleViewChange('list')}>Open Repository</Button>
               </Stack>
               <Grid container spacing={2}>
                 {recentCourses.map(c => (
                   <Grid item xs={12} sm={6} md={4} lg={3} key={`${c._id}-${c.session}-${c.level}-${c.semester}`}>
                     <Card variant="outlined">
-                      <CardActionArea onClick={() => setView('search')}>
+                    <CardActionArea onClick={() => handleViewChange('search')}>
                         <Box sx={{ p: 2 }}>
                           <Typography fontWeight={700}>{c.code} • {c.session}</Typography>
                           <Typography variant="body2" color="text.secondary" noWrap title={c.title}>{c.title}</Typography>
@@ -308,18 +359,30 @@ function ResultDashboard() {
     }
   };
 
-  // drawer items
-  const drawerItems = [
-    { text: 'Dashboard', icon: <DashboardIcon />, view: 'dashboard', badge: null },
-    { text: 'Result Repository', icon: <ListAltIcon />, view: 'list', badge: allResultsForDashboard?.length || 0 },
-    { text: 'Quick Compute', icon: <TuneIcon />, view: 'quick', badge: null }, // <-- NEW
-    { text: 'Compute Results', icon: <AssessmentIcon />, view: 'compute', badge: null },
-    { text: 'Upload Results', icon: <CloudUploadIcon />, view: 'upload', badge: null },
-    { text: 'Create Result', icon: <BoltIcon />, view: 'create', badge: null },
-    { text: 'Computed Results', icon: <SearchIcon />, view: 'search', badge: null },
-    { text: 'Upload Old Metrics', icon: <CloudUploadIcon />, view: 'uploadOld', badge: null },
-    { text: 'Download', icon: <TableViewIcon />, view: 'download', badge: null },
-  ];
+  const baseDrawerItems = useMemo(() => (
+    [
+      { text: 'Dashboard', icon: <DashboardIcon />, view: 'dashboard', badge: null },
+      { text: 'Result Repository', icon: <ListAltIcon />, view: 'list', badge: allResultsForDashboard?.length || 0 },
+      { text: 'Quick Compute', icon: <TuneIcon />, view: 'quick', badge: null },
+      { text: 'Compute Results', icon: <AssessmentIcon />, view: 'compute', badge: null },
+      { text: 'Upload Results', icon: <CloudUploadIcon />, view: 'upload', badge: null },
+      { text: 'Create Result', icon: <BoltIcon />, view: 'create', badge: null },
+      { text: 'Computed Results', icon: <SearchIcon />, view: 'search', badge: null },
+      { text: 'Upload Old Metrics', icon: <CloudUploadIcon />, view: 'uploadOld', badge: null },
+      { text: 'Download', icon: <TableViewIcon />, view: 'download', badge: null },
+    ]
+  ), [allResultsForDashboard?.length]);
+
+  const drawerItems = useMemo(() => (
+    readOnly ? baseDrawerItems.filter((item) => !RESTRICTED_RESULT_VIEWS.has(item.view)) : baseDrawerItems
+  ), [baseDrawerItems, readOnly]);
+
+  useEffect(() => {
+    const allowedViews = drawerItems.map((item) => item.view);
+    if (!allowedViews.includes(view)) {
+      setView(allowedViews[0] || 'dashboard');
+    }
+  }, [drawerItems, view]);
 
   const drawerContent = (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -339,7 +402,7 @@ function ResultDashboard() {
         {drawerItems.map((item) => (
           <ListItemButton
             key={item.text}
-            onClick={() => { setView(item.view); if (isMobile) setMobileOpen(false); }}
+            onClick={() => handleViewChange(item.view, isMobile)}
             selected={view === item.view}
             sx={{
               borderRadius: 1, mb: 0.5,
@@ -444,6 +507,16 @@ function ResultDashboard() {
           onClose={handleCloseEditModal}
         />
       )}
+      <Snackbar
+        open={Boolean(readOnlyFeedback)}
+        autoHideDuration={4000}
+        onClose={() => setReadOnlyFeedback('')}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="warning" onClose={() => setReadOnlyFeedback('')} sx={{ width: '100%' }}>
+          {readOnlyFeedback}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

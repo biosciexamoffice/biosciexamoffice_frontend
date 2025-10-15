@@ -1,31 +1,65 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Box,
   TextField,
   Button,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
   Typography,
   Paper,
   Grid,
   Alert,
-  InputAdornment,
-  Tooltip,
-  IconButton,
   useTheme,
   Fade,
   Divider,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Select,
+  InputAdornment,
+  Tooltip,
 } from "@mui/material";
 import {
-  Info as InfoIcon,
   HelpOutline as HelpIcon,
   School as SchoolIcon,
 } from "@mui/icons-material";
+import { idsMatch, normalizeId } from "../../../utills/normalizeId";
 
-function CreateCourse({ onCreate, isLoading, error }) {
+const LEVEL_OPTIONS = ["100", "200", "300", "400", "500"];
+const SEMESTER_OPTIONS = [
+  { value: 1, label: "First Semester" },
+  { value: 2, label: "Second Semester" },
+];
+const OPTION_OPTIONS = [
+  { value: "C", label: "Compulsory" },
+  { value: "E", label: "Elective" },
+];
+
+function CreateCourse({
+  onCreate,
+  isLoading,
+  error,
+  colleges = [],
+  programmes = [],
+  isLoadingInstitutions = false,
+}) {
   const theme = useTheme();
+  const defaultInstitution = useMemo(() => {
+    if (!colleges.length) {
+      return { collegeId: "", departmentId: "", programmeId: "" };
+    }
+    const firstCollege = colleges[0];
+    const departments = firstCollege.departments || [];
+    const firstDepartment = departments[0] || null;
+    const programmesForDepartment = programmes.filter((programme) =>
+      idsMatch(programme.departmentId, firstDepartment?.id)
+    );
+    const firstProgramme = programmesForDepartment[0] || programmes[0] || null;
+
+    return {
+      collegeId: firstCollege.id,
+      departmentId: normalizeId(firstDepartment?.id),
+      programmeId: firstProgramme?.id || "",
+    };
+  }, [colleges, programmes]);
   const [inputs, setInputs] = useState({
     title: "",
     code: "",
@@ -33,78 +67,229 @@ function CreateCourse({ onCreate, isLoading, error }) {
     level: "",
     semester: 1,
     option: "C",
+    ...defaultInstitution,
   });
   const [touched, setTouched] = useState({
     title: false,
     code: false,
     unit: false,
+    level: false,
+    collegeId: false,
+    departmentId: false,
+    programmeId: false,
   });
 
-  const handleInputs = (e) => {
-    const { name, value } = e.target;
-    setInputs({
-      ...inputs,
-      [name]: value,
+  const departmentOptions = useMemo(() => {
+    const selectedCollege = colleges.find((college) => college.id === inputs.collegeId);
+    return selectedCollege?.departments || [];
+  }, [colleges, inputs.collegeId]);
+
+  const programmeOptions = useMemo(() => {
+    if (!inputs.departmentId) {
+      return programmes;
+    }
+    return programmes.filter((programme) => idsMatch(programme.departmentId, inputs.departmentId));
+  }, [programmes, inputs.departmentId]);
+
+  const selectedProgramme = useMemo(
+    () => programmeOptions.find((programme) => programme.id === inputs.programmeId) || null,
+    [programmeOptions, inputs.programmeId]
+  );
+
+  useEffect(() => {
+    if (!colleges.length) return;
+
+    setInputs((prev) => {
+      const resolvedCollege =
+        colleges.find((college) => college.id === prev.collegeId) || colleges[0];
+      const departments = resolvedCollege.departments || [];
+      const resolvedDepartment =
+        departments.find((dept) => dept.id === prev.departmentId) || departments[0] || null;
+
+      const programmesForDepartment = programmes.filter((programme) =>
+        idsMatch(programme.departmentId, resolvedDepartment?.id)
+      );
+      const fallbackProgramme = programmesForDepartment[0] || programmes[0] || null;
+      const resolvedProgramme =
+        programmesForDepartment.find((programme) => programme.id === prev.programmeId) ||
+        fallbackProgramme ||
+        null;
+
+      if (
+        prev.collegeId === resolvedCollege.id &&
+        idsMatch(prev.departmentId, resolvedDepartment?.id) &&
+        prev.programmeId === (resolvedProgramme?.id || "")
+      ) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        collegeId: resolvedCollege.id,
+        departmentId: normalizeId(resolvedDepartment?.id),
+        programmeId: resolvedProgramme?.id || "",
+      };
     });
-    // Mark field as touched when changed
+  }, [colleges, programmes]);
+
+  const handleInputs = (event) => {
+    const { name, value } = event.target;
+
+    setInputs((prev) => {
+      if (name === "collegeId") {
+        const nextCollege = colleges.find((college) => college.id === value);
+        const departments = nextCollege?.departments || [];
+        const nextDepartment = departments[0] || null;
+        const programmesForDepartment = programmes.filter((programme) =>
+          idsMatch(programme.departmentId, nextDepartment?.id)
+        );
+        const nextProgramme = programmesForDepartment[0] || null;
+
+        return {
+          ...prev,
+          collegeId: value,
+          departmentId: normalizeId(nextDepartment?.id),
+          programmeId: nextProgramme?.id || "",
+        };
+      }
+
+      if (name === "departmentId") {
+        const programmesForDepartment = programmes.filter((programme) =>
+          idsMatch(programme.departmentId, value)
+        );
+        const nextProgramme = programmesForDepartment[0] || null;
+
+        return {
+          ...prev,
+          departmentId: normalizeId(value),
+          programmeId: nextProgramme?.id || "",
+        };
+      }
+
+      if (name === "code") {
+        return { ...prev, [name]: String(value).toUpperCase() };
+      }
+
+      if (name === "option") {
+        return { ...prev, option: value };
+      }
+
+      if (name === "unit") {
+        return { ...prev, unit: value.replace(/[^0-9]/g, "") };
+      }
+
+      return {
+        ...prev,
+        [name]: value,
+      };
+    });
+
     if (name in touched) {
-      setTouched({
-        ...touched,
+      setTouched((prev) => ({
+        ...prev,
         [name]: true,
-      });
+      }));
     }
   };
 
-  const handleBlur = (e) => {
-    const { name } = e.target;
+  const handleBlur = (event) => {
+    const { name } = event.target;
     if (name in touched) {
-      setTouched({
-        ...touched,
+      setTouched((prev) => ({
+        ...prev,
         [name]: true,
-      });
+      }));
     }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    // Trigger touched state for all fields on submit to show errors
-    if (!inputs.title || !inputs.code || !inputs.unit || !inputs.level) {
-      setTouched({ title: true, code: true, unit: true, level: true });
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (
+      !inputs.title ||
+      !inputs.code ||
+      !inputs.unit ||
+      !inputs.level ||
+      !inputs.collegeId ||
+      !inputs.departmentId ||
+      !inputs.programmeId
+    ) {
+      setTouched({
+        title: true,
+        code: true,
+        unit: true,
+        level: true,
+        collegeId: true,
+        departmentId: true,
+        programmeId: true,
+      });
       return;
     }
 
     try {
-      // Parent's onCreate will throw an error on failure due to .unwrap()
-      await onCreate(inputs);
-      // Reset form only on successful creation
-      setInputs({
+      const payload = {
+        title: inputs.title.trim(),
+        code: inputs.code.trim().toUpperCase(),
+        unit: Number(inputs.unit),
+        level: inputs.level.trim(),
+        semester: Number(inputs.semester),
+        option: inputs.option,
+        collegeId: inputs.collegeId,
+        departmentId: inputs.departmentId,
+        programmeId: inputs.programmeId,
+      };
+
+      await onCreate(payload);
+      setInputs((prev) => ({
+        ...prev,
         title: "",
         code: "",
         unit: "",
         level: "",
         semester: 1,
         option: "C",
+        collegeId: defaultInstitution.collegeId,
+        departmentId: defaultInstitution.departmentId,
+        programmeId: defaultInstitution.programmeId,
+      }));
+      setTouched({
+        title: false,
+        code: false,
+        unit: false,
+        level: false,
+        collegeId: false,
+        departmentId: false,
+        programmeId: false,
       });
-      setTouched({ title: false, code: false, unit: false, level: false });
     } catch (err) {
-      // Error is displayed via the `error` prop from the parent.
-      // We just prevent the form from being reset on failure.
+      // handled upstream
     }
   };
 
-  // Validation helpers
   const isTitleValid = inputs.title.trim() !== "" || !touched.title;
   const isCodeValid = inputs.code.trim() !== "" || !touched.code;
-  const isUnitValid = inputs.unit > 0 || !touched.unit;
+  const isUnitValid = Number(inputs.unit) > 0 || !touched.unit;
   const isLevelValid = inputs.level.trim() !== "" || !touched.level;
+  const isCollegeValid = inputs.collegeId || !touched.collegeId;
+  const isDepartmentValid = inputs.departmentId || !touched.departmentId;
+  const isProgrammeValid = inputs.programmeId || !touched.programmeId;
 
+  const institutionsUnavailable = !colleges.length || !programmes.length;
+
+  if (!isLoadingInstitutions && institutionsUnavailable) {
+    return (
+      <Alert severity="warning" sx={{ mt: 4 }}>
+        No colleges or programmes are available. Please create institutional data before adding
+        courses.
+      </Alert>
+    );
+  }
 
   return (
     <Paper
       sx={{
         p: 4,
         mt: 4,
-        maxWidth: 800,
+        maxWidth: 960,
         mx: "auto",
         boxShadow: theme.shadows[3],
         borderRadius: 2,
@@ -117,7 +302,7 @@ function CreateCourse({ onCreate, isLoading, error }) {
       >
         <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 1 }}>
           <SchoolIcon color="primary" sx={{ fontSize: 32 }} />
-          <Typography variant="h5" component="h2" fontWeight="600">
+          <Typography variant="h5" component="h2" fontWeight={600}>
             Create New Course
           </Typography>
         </Box>
@@ -125,7 +310,7 @@ function CreateCourse({ onCreate, isLoading, error }) {
         <Divider sx={{ mb: 2 }} />
 
         {error && (
-          <Fade in={!!error}>
+          <Fade in={Boolean(error)}>
             <Alert severity="error" sx={{ mb: 3 }}>
               {error}
             </Alert>
@@ -136,7 +321,6 @@ function CreateCourse({ onCreate, isLoading, error }) {
           <Grid item xs={12} md={6}>
             <TextField
               label="Course Title"
-              variant="outlined"
               name="title"
               value={inputs.title}
               onChange={handleInputs}
@@ -160,7 +344,6 @@ function CreateCourse({ onCreate, isLoading, error }) {
           <Grid item xs={12} md={6}>
             <TextField
               label="Course Code"
-              variant="outlined"
               name="code"
               value={inputs.code}
               onChange={handleInputs}
@@ -172,7 +355,7 @@ function CreateCourse({ onCreate, isLoading, error }) {
               InputProps={{
                 endAdornment: (
                   <InputAdornment position="end">
-                    <Tooltip title="The official course code (e.g., CS101)">
+                    <Tooltip title="The official course code (e.g., BIO101)">
                       <HelpIcon color="action" fontSize="small" />
                     </Tooltip>
                   </InputAdornment>
@@ -181,51 +364,26 @@ function CreateCourse({ onCreate, isLoading, error }) {
             />
           </Grid>
 
-          <Grid item xs={12} md={6}>
+          <Grid item xs={12} md={4}>
             <TextField
               label="Course Unit"
-              variant="outlined"
-              type="number"
               name="unit"
+              type="number"
               value={inputs.unit}
               onChange={handleInputs}
               onBlur={handleBlur}
               required
               fullWidth
               error={!isUnitValid}
-              helperText={!isUnitValid ? "Must be a positive number" : "Credit units for the course"}
-              InputProps={{
-                inputProps: { min: 1 },
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <Tooltip title="Credit units">
-                      <HelpIcon color="action" fontSize="small" />
-                    </Tooltip>
-                  </InputAdornment>
-                ),
-              }}
+              helperText={!isUnitValid ? "Provide a positive number" : "Credit units for the course"}
+              InputProps={{ inputProps: { min: 1 } }}
             />
           </Grid>
 
-          <Grid item xs={12} md={6}>
-            <FormControl fullWidth>
-              <InputLabel id="semester-select-label">Semester</InputLabel>
-              <Select
-                labelId="semester-select-label"
-                name="semester"
-                value={inputs.semester}
-                label="Semester"
-                onChange={handleInputs}
-              >
-                <MenuItem value={1}>First Semester</MenuItem>
-                <MenuItem value={2}>Second Semester</MenuItem>
-              </Select>
-            </FormControl>
-          </Grid>
-          <Grid item xs={12} md={6}>
+          <Grid item xs={12} md={4}>
             <TextField
-              label="Course Level"
-              variant="outlined"
+              select
+              label="Level"
               name="level"
               value={inputs.level}
               onChange={handleInputs}
@@ -233,51 +391,170 @@ function CreateCourse({ onCreate, isLoading, error }) {
               required
               fullWidth
               error={!isLevelValid}
-              helperText={!isLevelValid && "Course level is required"}
-              InputProps={{
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <Tooltip title="The level for course">
-                      <HelpIcon color="action" fontSize="small" />
-                    </Tooltip>
-                  </InputAdornment>
-                ),
-              }}
-            />
+              helperText={!isLevelValid && "Select a level"}
+            >
+              <MenuItem value="" disabled>
+                <em>Select Level</em>
+              </MenuItem>
+              {LEVEL_OPTIONS.map((option) => (
+                <MenuItem key={option} value={option}>
+                  {option}
+                </MenuItem>
+              ))}
+            </TextField>
           </Grid>
-          <Grid item xs={12}>
+
+          <Grid item xs={12} md={4}>
             <FormControl fullWidth>
-              <InputLabel id="option-select-label">Course Type</InputLabel>
+              <InputLabel>Semester</InputLabel>
               <Select
-                labelId="option-select-label"
-                name="option"
-                value={inputs.option}
-                label="Course Type"
+                label="Semester"
+                name="semester"
+                value={inputs.semester}
                 onChange={handleInputs}
               >
-                <MenuItem value={"C"}>Compulsory (Required for all students)</MenuItem>
-                <MenuItem value={"E"}>Elective (Optional for students)</MenuItem>
+                {SEMESTER_OPTIONS.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
               </Select>
             </FormControl>
           </Grid>
+
+          <Grid item xs={12} md={4}>
+            <FormControl fullWidth>
+              <InputLabel>Course Type</InputLabel>
+              <Select
+                label="Course Type"
+                name="option"
+                value={inputs.option}
+                onChange={handleInputs}
+              >
+                {OPTION_OPTIONS.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+
+          <Grid item xs={12} md={4}>
+            <TextField
+              select
+              label="College"
+              name="collegeId"
+              value={inputs.collegeId}
+              onChange={handleInputs}
+              onBlur={handleBlur}
+              required
+              fullWidth
+              disabled={isLoadingInstitutions || institutionsUnavailable}
+              error={!isCollegeValid}
+              helperText={
+                isLoadingInstitutions
+                  ? "Loading colleges..."
+                  : !isCollegeValid
+                  ? "Select a college"
+                  : undefined
+              }
+            >
+              {colleges.map((college) => (
+                <MenuItem key={college.id} value={college.id}>
+                  {college.name}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Grid>
+
+          <Grid item xs={12} md={4}>
+            <TextField
+              select
+              label="Department"
+              name="departmentId"
+              value={inputs.departmentId}
+              onChange={handleInputs}
+              onBlur={handleBlur}
+              required
+              fullWidth
+              disabled={
+                isLoadingInstitutions ||
+                institutionsUnavailable ||
+                departmentOptions.length === 0
+              }
+              error={!isDepartmentValid}
+              helperText={
+                isLoadingInstitutions
+                  ? "Loading departments..."
+                  : departmentOptions.length === 0
+                  ? "No departments for the selected college."
+                  : !isDepartmentValid
+                  ? "Select a department"
+                  : undefined
+              }
+            >
+              {departmentOptions.map((department) => (
+                <MenuItem key={department.id} value={department.id}>
+                  {department.name}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Grid>
+
+          <Grid item xs={12} md={4}>
+            <TextField
+              select
+              label="Programme"
+              name="programmeId"
+              value={inputs.programmeId}
+              onChange={handleInputs}
+              onBlur={handleBlur}
+              required
+              fullWidth
+              disabled={
+                isLoadingInstitutions ||
+                institutionsUnavailable ||
+                programmeOptions.length === 0
+              }
+              error={!isProgrammeValid}
+              helperText={
+                isLoadingInstitutions
+                  ? "Loading programmes..."
+                  : programmeOptions.length === 0
+                  ? "No programmes for the selected department."
+                  : !isProgrammeValid
+                  ? "Select a programme"
+                  : undefined
+              }
+            >
+              {programmeOptions.map((programme) => (
+                <MenuItem key={programme.id} value={programme.id}>
+                  {programme.name}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Grid>
+
+          <Grid item xs={12} md={4}>
+            <TextField
+              label="Programme Type"
+              value={selectedProgramme?.degreeType || ""}
+              fullWidth
+              InputProps={{ readOnly: true }}
+              helperText="Derived from the selected programme"
+            />
+          </Grid>
         </Grid>
 
-        <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 2 }}>
-          <Button
-            type="submit"
-            variant="contained"
-            color="primary"
-            size="large"
-            disabled={isLoading}
-            sx={{
-              minWidth: 120,
-              py: 1.5,
-              fontWeight: 600,
-            }}
-          >
-            {isLoading ? "Creating..." : "Create Course"}
-          </Button>
-        </Box>
+        <Button
+          variant="contained"
+          type="submit"
+          size="large"
+          disabled={isLoading || isLoadingInstitutions || institutionsUnavailable}
+        >
+          {isLoading ? "Creating..." : "Create Course"}
+        </Button>
       </Box>
     </Paper>
   );

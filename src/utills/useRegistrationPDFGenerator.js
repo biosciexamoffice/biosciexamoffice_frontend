@@ -64,9 +64,9 @@ const useRegistrationPDFGenerator = () => {
     const leftValueX = leftLabelX + 30;
     drawMetaBlock(
       [
-        ['College:', meta?.college || 'Biological Sciences'],
-        ['Department:', meta?.department || 'Biochemistry'],
-        ['Programme:', meta?.programme || 'B. Sc. Biochemistry'],
+        ['College:', meta?.college || 'College Not Provided'],
+        ['Department:', meta?.department || 'Department Not Provided'],
+        ['Programme:', meta?.programme || 'Programme Not Provided'],
       ],
       leftLabelX,
       leftValueX,

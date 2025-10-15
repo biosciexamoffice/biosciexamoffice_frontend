@@ -99,6 +99,12 @@ const TableSkeleton = ({ columns = 12, rows = 5 }) => (
   </Table>
 );
 
+const OFFICER_CONFIG = [
+  { key: 'ceo', label: 'College Exam Officer', approvalField: 'ceoApproval' },
+  { key: 'hod', label: 'Head of Department', approvalField: 'hodApproval' },
+  { key: 'dean', label: 'Dean of College', approvalField: 'deanApproval' },
+];
+
 // Robust course result lookup (by id, then by normalized code)
 const getCourseResult = (student, course) => {
   const results = student?.results || {};
@@ -119,6 +125,14 @@ const getCourseResult = (student, course) => {
 
   return byCode || null;
 };
+
+const normalizeOfficer = (approval = {}) => ({
+  approved: Boolean(approval?.approved),
+  flagged: Boolean(approval?.flagged),
+  name: approval?.name || '',
+  note: approval?.note || '',
+  updatedAt: approval?.updatedAt || null,
+});
 
 // ————————————————————————————————————————————————————————————
 export default function QuickCompute() {
@@ -561,7 +575,7 @@ export default function QuickCompute() {
       {/* Loading / Error / Empty */}
       {isFetchingMetrics && (
         <Paper elevation={2} sx={{ mt: 3, p: 2 }} aria-busy>
-          <TableSkeleton columns={16} rows={6} />
+          <TableSkeleton columns={15 + OFFICER_CONFIG.length} rows={6} />
         </Paper>
       )}
 
@@ -677,9 +691,9 @@ export default function QuickCompute() {
                     gradeSummary,
                     formData,
                     {
-                      subject: 'Biological Sciences',
-                      department: metricsPayload?.department || 'Biochemistry',
-                      programme: metricsPayload?.programme || 'B. Sc. Biochemistry'
+                      subject: 'College Not Provided',
+                      department: metricsPayload?.department || 'Department Not Provided',
+                      programme: metricsPayload?.programme || 'Programme Not Provided'
                     }
                   );
                   setBusy(false);
@@ -736,6 +750,7 @@ export default function QuickCompute() {
                     <TableCell align="center" colSpan={4}>Previous</TableCell>
                     <TableCell align="center" colSpan={4}>Cumulative</TableCell>
                     <TableCell align="left">Remarks</TableCell>
+                    <TableCell align="left" colSpan={OFFICER_CONFIG.length}>Officer Approvals</TableCell>
                   </TableRow>
 
                   {/* Column headers */}
@@ -761,6 +776,9 @@ export default function QuickCompute() {
                     <TableCell align="center"><MetricLabel label="CPE" tooltip="Cumulative Points Earned" /></TableCell>
                     <TableCell align="center"><MetricLabel label="CGPA" tooltip="Cumulative GPA" /></TableCell>
                     <TableCell>Remark</TableCell>
+                    {OFFICER_CONFIG.map((officer) => (
+                      <TableCell key={`qc-officer-header-${officer.key}`}>{officer.label}</TableCell>
+                    ))}
                   </TableRow>
                 </TableHead>
 
@@ -773,6 +791,10 @@ export default function QuickCompute() {
                       const cumMetrics  = student.metrics || {};
                       const rowNumber = page * rowsPerPage + index + 1;
                       const studentRegUpper = normalizeRegNo(student.regNo);
+                      const officerApprovals = {};
+                      OFFICER_CONFIG.forEach(({ key, approvalField }) => {
+                        officerApprovals[key] = normalizeOfficer(student?.[approvalField]);
+                      });
 
                       return (
                         <TableRow key={`${student.id}-${index}`} hover>
@@ -885,6 +907,44 @@ export default function QuickCompute() {
                           <TableCell align="center" sx={{ fontWeight: 700 }}>{(cumMetrics.CGPA || 0).toFixed(2)}</TableCell>
 
                           <TableCell sx={{ textAlign: 'left' }}>{student.remarks}</TableCell>
+                          {OFFICER_CONFIG.map((officer) => {
+                            const approval = officerApprovals[officer.key] || {};
+                            const statusLabel = approval.approved ? 'Approved' : 'Pending';
+                            const statusColor = approval.approved ? 'success' : 'default';
+                            const updatedAtText = approval.updatedAt
+                              ? new Date(approval.updatedAt).toLocaleString()
+                              : null;
+                            return (
+                              <TableCell key={`${student.id}-${officer.key}`} sx={{ minWidth: 200 }}>
+                                <Stack spacing={0.5} alignItems="flex-start">
+                                  <Chip
+                                    size="small"
+                                    color={statusColor}
+                                    label={statusLabel}
+                                    sx={{ fontWeight: 600 }}
+                                  />
+                                  <Typography variant="caption" color="text.secondary">
+                                    Officer: {approval.name || '—'}
+                                  </Typography>
+                                  {approval.flagged && (
+                                    <Typography variant="caption" color="error" sx={{ fontWeight: 600 }}>
+                                      Flagged for follow-up
+                                    </Typography>
+                                  )}
+                                  {approval.note && (
+                                    <Typography variant="caption" color="text.secondary">
+                                      Note: {approval.note}
+                                    </Typography>
+                                  )}
+                                  {updatedAtText && (
+                                    <Typography variant="caption" color="text.secondary">
+                                      Updated {updatedAtText}
+                                    </Typography>
+                                  )}
+                                </Stack>
+                              </TableCell>
+                            );
+                          })}
                         </TableRow>
                       );
                     })}

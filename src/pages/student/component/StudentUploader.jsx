@@ -100,9 +100,11 @@ function StudentUploader() {
           Select a CSV file containing student profiles to upload.
         </Typography>
 
-          <Typography variant="caption" color="text.secondary">
-            CSV Format: regNo, surname, firstname, middlename, 
-          </Typography>
+        <Alert severity="info" sx={{ mb: 2 }}>
+          CSV header must include: <strong>regNo, surname, firstname, middlename</strong> (optional),
+          <strong> college, department, programme, degreeType</strong>. Values must match existing
+          institution records exactly.
+        </Alert>
 
         <form onSubmit={handleSubmit}>
           <Stack spacing={3}>

@@ -50,9 +50,9 @@ const useGradeSummaryPDFGenerator = () => {
 
       // Pairs (label, value) for both sides
       const leftPairs = [
-        ['College:',    headerInfo?.subject    || 'Biological Sciences'],
-        ['Department:', headerInfo?.department || 'Biochemistry'],
-        ['Programme:',  headerInfo?.programme  || 'B. Sc. Biochemistry'],
+        ['College:',    headerInfo?.subject    || 'College Not Provided'],
+        ['Department:', headerInfo?.department || 'Department Not Provided'],
+        ['Programme:',  headerInfo?.programme  || 'Programme Not Provided'],
       ];
       const rightPairs = [
         ['Level:',    String(formData.level ?? '')],

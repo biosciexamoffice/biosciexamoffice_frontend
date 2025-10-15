@@ -1,24 +1,21 @@
-import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+import { createApi } from '@reduxjs/toolkit/query/react';
+import baseQuery from './baseQuery';
 
 export const courseRegistrationApi = createApi({
   reducerPath: 'courseRegistrationApi',
-  baseQuery: fetchBaseQuery({
-    baseUrl: 'http://localhost:10000/api',
-    prepareHeaders: (headers) => {
-      // const token = getState().auth.token;
-      // if (token) headers.set('authorization', `Bearer ${token}`);
-      return headers;
-    },
-  }),
+  baseQuery,
   endpoints: (builder) => ({
     // POST: upload multiple CSVs
     uploadCourseRegistrations: builder.mutation({
       query: (data) => {
-        const { session, semester, curriculumType, files } = data;
+        const { session, semester, curriculumType, files, collegeId, departmentId, programmeId } = data;
         const formData = new FormData();
         formData.append('session', session);
         formData.append('semester', semester);
         if (curriculumType) formData.append('curriculumType', curriculumType);
+        if (collegeId) formData.append('collegeId', collegeId);
+        if (departmentId) formData.append('departmentId', departmentId);
+        if (programmeId) formData.append('programmeId', programmeId);
         files.forEach((file) => formData.append('files', file));
 
         return {
@@ -65,6 +62,14 @@ export const courseRegistrationApi = createApi({
         body: { session, semester, level, course, regNo },
       }),
     }),
+
+    deleteCourseRegistrations: builder.mutation({
+      query: ({ session, semester, level, course }) => ({
+        url: '/course-registration/registrations/course',
+        method: 'DELETE',
+        body: { session, semester, level, course },
+      }),
+    }),
   }),
 });
 
@@ -77,5 +82,6 @@ export const {
   useGetRegistrationStudentsQuery,
   useLazyGetRegistrationStudentsQuery,
   useDeleteRegisteredStudentMutation,
-   useMoveRegisteredStudentsMutation,// handy for on-demand searches (e.g., button click)
+  useMoveRegisteredStudentsMutation,
+  useDeleteCourseRegistrationsMutation,
 } = courseRegistrationApi;

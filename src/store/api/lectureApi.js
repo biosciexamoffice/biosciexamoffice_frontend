@@ -1,14 +1,15 @@
-import  {createApi, fetchBaseQuery} from '@reduxjs/toolkit/query/react'
+import  {createApi} from '@reduxjs/toolkit/query/react'
+import baseQuery from './baseQuery';
 
 const lecturerApi = createApi({
     reducerPath: 'lecturerApi',
-    baseQuery: fetchBaseQuery({ baseUrl: 'http://localhost:10000' }),
+    baseQuery,
     tagTypes: ['Lecturer'],
     endpoints: (builder) => ({
         createLecturer: builder.mutation({
             query: (lecturer) =>{
                 return {
-                    url: '/api/lecturers',
+                    url: '/lecturers',
                     method: 'POST',
                     body: lecturer,
                 }
@@ -20,7 +21,7 @@ const lecturerApi = createApi({
         getAllLecturers: builder.query({
             query: () =>{
                 return {
-                    url: '/api/lecturers',
+                    url: '/lecturers',
                     method: 'GET',
                 }
             },
@@ -30,7 +31,7 @@ const lecturerApi = createApi({
         getLecturerById: builder.query({
             query: (lecturerId) =>{
                 return {
-                    url: `/api/lecturers/${lecturerId}`,
+                    url: `/lecturers/${lecturerId}`,
                     method: 'GET',
                 }
             },
@@ -40,7 +41,7 @@ const lecturerApi = createApi({
 
         updateLecturer: builder.mutation({
             query: ({ id, ...patch }) => ({
-                url: `/api/lecturers/${id}`,
+                url: `/lecturers/${id}`,
                 method: 'PATCH',
                 body: patch,
             }),
@@ -51,7 +52,7 @@ const lecturerApi = createApi({
 
         deleteLecturer: builder.mutation({
             query: (lecturerId) => ({
-                url: `/api/lecturers/{${lecturerId}}`,
+                url: `/lecturers/${lecturerId}`,
                 method: 'DELETE',
             }),
             invalidatesTags: ['Lecturer'],

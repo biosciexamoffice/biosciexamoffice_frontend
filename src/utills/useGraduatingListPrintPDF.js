@@ -88,9 +88,9 @@ const useGraduatingListPrintPDF = () => {
 
         doc.setFont('times', 'normal');
         doc.setFontSize(9);
-        doc.text(`College: ${header.college || 'Biological Sciences'}`, left, 45);
-        doc.text(`Department: ${header.department || 'Biochemistry'}`, left, 52);
-        doc.text(`Programme: ${header.programme || 'B. Sc. Biochemistry'}`, left, 59);
+        doc.text(`College: ${header.college || 'College Not Provided'}`, left, 45);
+        doc.text(`Department: ${header.department || 'Department Not Provided'}`, left, 52);
+        doc.text(`Programme: ${header.programme || 'Programme Not Provided'}`, left, 59);
 
         doc.text(`Level: 400`, pageWidth - right, 45, { align: 'right' });
         doc.text(

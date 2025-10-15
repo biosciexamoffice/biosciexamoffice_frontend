@@ -710,7 +710,7 @@ const SearchResults = () => {
               JOSEPH SARWUAN TARKA UNIVERSITY, P.M.B. 2373, MAKURDI
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              College of Biological Sciences • Department of Biochemistry • Programme: B. Sc. Biochemistry
+              College: {dialogRow?.college || 'Not Provided'} • Department: {dialogRow?.department || 'Not Provided'} • Programme: {dialogRow?.programme || 'Not Provided'}
             </Typography>
           </Box>
 

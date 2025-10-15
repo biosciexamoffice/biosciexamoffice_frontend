@@ -1,14 +1,15 @@
-import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+import { createApi } from '@reduxjs/toolkit/query/react';
+import baseQuery from './baseQuery';
 
 const approvedCoursesApi = createApi({
     reducerPath: 'approvedCoursesApi',
-    baseQuery: fetchBaseQuery({ baseUrl: 'http://localhost:10000' }),
+    baseQuery,
     tagTypes: ['ApprovedCourses'],
     endpoints: (builder) => ({
         // Create approved courses
         createApprovedCourses: builder.mutation({
             query: (approvedCoursesData) => ({
-                url: '/api/approvedCourses',
+                url: '/approvedCourses',
                 method: 'POST',
                 body: approvedCoursesData,
             }),
@@ -17,10 +18,17 @@ const approvedCoursesApi = createApi({
 
         // Get all approved courses (with optional query params)
         getAllApprovedCourses: builder.query({
-            query: ({ college, session, semester, level } = {}) => ({
-                url: '/api/approvedCourses',
+            query: ({ collegeId, departmentId, programmeId, session, semester, level } = {}) => ({
+                url: '/approvedCourses',
                 method: 'GET',
-                params: { college, session, semester, level },
+                params: {
+                    ...(collegeId ? { collegeId } : {}),
+                    ...(departmentId ? { departmentId } : {}),
+                    ...(programmeId ? { programmeId } : {}),
+                    ...(session ? { session } : {}),
+                    ...(semester != null ? { semester } : {}),
+                    ...(level != null ? { level } : {}),
+                },
             }),
             providesTags: (result) =>
                 result
@@ -34,7 +42,7 @@ const approvedCoursesApi = createApi({
         // Get approved courses by ID
         getApprovedCoursesById: builder.query({
             query: (id) => ({
-                url: `/api/approvedCourses/${id}`,
+                url: `/approvedCourses/${id}`,
                 method: 'GET',
             }),
             providesTags: (result, error, id) => [{ type: 'ApprovedCourses', id }],
@@ -43,7 +51,7 @@ const approvedCoursesApi = createApi({
         // Update approved courses
         updateApprovedCourses: builder.mutation({
             query: ({ id, ...patch }) => ({
-                url: `/api/approvedCourses/${id}`,
+                url: `/approvedCourses/${id}`,
                 method: 'PUT',
                 body: patch,
             }),
@@ -53,7 +61,7 @@ const approvedCoursesApi = createApi({
         // Delete approved courses
         deleteApprovedCourses: builder.mutation({
             query: (id) => ({
-                url: `/api/approvedCourses/${id}`,
+                url: `/approvedCourses/${id}`,
                 method: 'DELETE',
             }),
             invalidatesTags: (result, error, id) => [{ type: 'ApprovedCourses', id }],
@@ -61,10 +69,17 @@ const approvedCoursesApi = createApi({
 
         // Additional endpoint if you need to get courses by specific criteria
         getApprovedCoursesByCriteria: builder.query({
-            query: ({ college, session, semester, level }) => ({
-                url: '/api/approvedCourses',
+            query: ({ collegeId, departmentId, programmeId, session, semester, level }) => ({
+                url: '/approvedCourses',
                 method: 'GET',
-                params: { college, session, semester, level },
+                params: {
+                    ...(collegeId ? { collegeId } : {}),
+                    ...(departmentId ? { departmentId } : {}),
+                    ...(programmeId ? { programmeId } : {}),
+                    ...(session ? { session } : {}),
+                    ...(semester != null ? { semester } : {}),
+                    ...(level != null ? { level } : {}),
+                },
             }),
             providesTags: (result) =>
                 result

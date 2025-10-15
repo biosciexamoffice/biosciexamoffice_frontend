@@ -1,5 +1,5 @@
 // ApprovedCourses.jsx
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   useCreateApprovedCoursesMutation,
   useGetAllApprovedCoursesQuery,
@@ -54,13 +54,20 @@ import {
   MenuBook as CourseIcon,
 } from "@mui/icons-material";
 import { useTheme } from "@mui/material/styles";
+import { idsMatch, normalizeId } from "../../../utills/normalizeId";
 
-const ApprovedCourses = () => {
+const ApprovedCourses = ({
+  colleges = [],
+  programmes = [],
+  isLoadingInstitutions = false,
+}) => {
   const [openDialog, setOpenDialog] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [currentApproval, setCurrentApproval] = useState(null);
   const [formData, setFormData] = useState({
-    college: "Biological Sciences",
+    collegeId: "",
+    departmentId: "",
+    programmeId: "",
     session: "",
     semester: "",
     level: "",
@@ -73,6 +80,23 @@ const ApprovedCourses = () => {
   });
   const [openCourseList, setOpenCourseList] = useState(false);
   const theme = useTheme();
+
+  const departmentOptions = useMemo(() => {
+    const selectedCollege = colleges.find((college) => college.id === formData.collegeId);
+    return selectedCollege?.departments || [];
+  }, [colleges, formData.collegeId]);
+
+  const programmeOptions = useMemo(() => {
+    if (!formData.departmentId) {
+      return programmes;
+    }
+    return programmes.filter((programme) => idsMatch(programme.departmentId, formData.departmentId));
+  }, [programmes, formData.departmentId]);
+
+  const selectedProgramme = useMemo(
+    () => programmeOptions.find((programme) => programme.id === formData.programmeId) || null,
+    [programmeOptions, formData.programmeId]
+  );
 
   // RTK Query hooks
   const { data: approvedCourses = [], isLoading, isError, refetch } =
@@ -88,6 +112,26 @@ const ApprovedCourses = () => {
   const [expandedLevels, setExpandedLevels] = useState({});
 
   const filteredApprovals = approvedCourses;
+  const institutionsUnavailable = !colleges.length || !programmes.length;
+  const defaultInstitution = useMemo(() => {
+    if (!colleges.length) {
+      return { collegeId: "", departmentId: "", programmeId: "" };
+    }
+
+    const firstCollege = colleges[0];
+    const departments = firstCollege.departments || [];
+    const firstDepartment = departments[0] || null;
+    const programmesForDepartment = programmes.filter((programme) =>
+      idsMatch(programme.departmentId, firstDepartment?.id)
+    );
+    const firstProgramme = programmesForDepartment[0] || programmes[0] || null;
+
+    return {
+      collegeId: firstCollege.id,
+      departmentId: normalizeId(firstDepartment?.id),
+      programmeId: firstProgramme?.id || "",
+    };
+  }, [colleges, programmes]);
 
   const groupedApprovals = useMemo(() => {
     const structure = {};
@@ -111,9 +155,11 @@ const ApprovedCourses = () => {
     Object.keys(structure).forEach((sessionKey) => {
       Object.keys(structure[sessionKey]).forEach((semesterKey) => {
         Object.keys(structure[sessionKey][semesterKey]).forEach((levelKey) => {
-          structure[sessionKey][semesterKey][levelKey].sort((a, b) =>
-            String(a.college || "").localeCompare(String(b.college || ""))
-          );
+          structure[sessionKey][semesterKey][levelKey].sort((a, b) => {
+            const aName = a.college?.name || a.collegeName || "";
+            const bName = b.college?.name || b.collegeName || "";
+            return aName.localeCompare(bName);
+          });
         });
       });
     });
@@ -125,16 +171,18 @@ const ApprovedCourses = () => {
     if (approval) {
       setCurrentApproval(approval);
       setFormData({
-        college: approval.college,
+        collegeId: approval.college?._id || approval.college || "",
+        departmentId: approval.department?._id || approval.department || "",
+        programmeId: approval.programme?._id || approval.programme || "",
         session: approval.session,
-        semester: approval.semester,
-        level: approval.level,
+        semester: String(approval.semester ?? ""),
+        level: String(approval.level ?? ""),
         courses: approval.courses.map((c) => c._id || c), // support id-only fallback
       });
       setEditMode(true);
     } else {
       setFormData({
-        college: "Biological Sciences",
+        ...defaultInstitution,
         session: "",
         semester: "",
         level: "",
@@ -145,6 +193,42 @@ const ApprovedCourses = () => {
     setOpenDialog(true);
   };
 
+  useEffect(() => {
+    if (!openDialog || !colleges.length) return;
+    setFormData((prev) => {
+      const resolvedCollege =
+        colleges.find((college) => college.id === prev.collegeId) || colleges[0];
+      const departments = resolvedCollege.departments || [];
+      const resolvedDepartment =
+        departments.find((department) => department.id === prev.departmentId) ||
+        departments[0] ||
+        null;
+      const programmesForDepartment = programmes.filter((programme) =>
+        idsMatch(programme.departmentId, resolvedDepartment?.id)
+      );
+      const resolvedProgramme =
+        programmesForDepartment.find((programme) => programme.id === prev.programmeId) ||
+        programmesForDepartment[0] ||
+        programmes[0] ||
+        null;
+
+      if (
+        idsMatch(prev.collegeId, resolvedCollege?.id) &&
+        idsMatch(prev.departmentId, resolvedDepartment?.id) &&
+        idsMatch(prev.programmeId, resolvedProgramme?.id)
+      ) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        collegeId: normalizeId(resolvedCollege?.id),
+        departmentId: normalizeId(resolvedDepartment?.id),
+        programmeId: normalizeId(resolvedProgramme?.id),
+      };
+    });
+  }, [openDialog, colleges, programmes]);
+
   const handleCloseDialog = () => {
     setOpenDialog(false);
     setCurrentApproval(null);
@@ -152,7 +236,39 @@ const ApprovedCourses = () => {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    setFormData((prev) => {
+      if (name === 'collegeId') {
+        const nextCollege = colleges.find((college) => college.id === value);
+        const departments = nextCollege?.departments || [];
+        const nextDepartment = departments[0] || null;
+        const programmesForDepartment = programmes.filter((programme) =>
+          idsMatch(programme.departmentId, nextDepartment?.id)
+        );
+        const nextProgramme = programmesForDepartment[0] || null;
+
+        return {
+          ...prev,
+          collegeId: normalizeId(value),
+          departmentId: normalizeId(nextDepartment?.id),
+          programmeId: nextProgramme?.id || "",
+        };
+      }
+
+      if (name === 'departmentId') {
+        const programmesForDepartment = programmes.filter((programme) =>
+          idsMatch(programme.departmentId, value)
+        );
+        const nextProgramme = programmesForDepartment[0] || null;
+
+        return {
+          ...prev,
+          departmentId: normalizeId(value),
+          programmeId: nextProgramme?.id || "",
+        };
+      }
+
+      return { ...prev, [name]: value };
+    });
   };
 
   const handleToggleCourse = (courseId) => {
@@ -174,12 +290,19 @@ const ApprovedCourses = () => {
   const filteredCoursesForPicker = useMemo(() => {
     const sem = formData.semester ? Number(formData.semester) : null;
     const lvl = formData.level ? String(formData.level) : null;
+    const programmeId = formData.programmeId ? String(formData.programmeId) : null;
     return allCourses.filter((c) => {
       const okSem = sem == null || Number(c.semester) === sem;
       const okLvl = lvl == null || String(c.level) === lvl;
-      return okSem && okLvl;
+      const programmeValue = c.programme;
+      const courseProgrammeId =
+        typeof programmeValue === 'string'
+          ? programmeValue
+          : programmeValue?._id || programmeValue?.id || '';
+      const okProgramme = !programmeId || String(courseProgrammeId) === programmeId;
+      return okSem && okLvl && okProgramme;
     });
-  }, [allCourses, formData.semester, formData.level]);
+  }, [allCourses, formData.semester, formData.level, formData.programmeId]);
 
   const coreCourses = useMemo(
     () => filteredCoursesForPicker.filter((c) => c.option === "C"),
@@ -226,11 +349,28 @@ const ApprovedCourses = () => {
 
   const handleSubmit = async () => {
     try {
+      if (!formData.collegeId || !formData.departmentId || !formData.programmeId) {
+        setSnackbar({
+          open: true,
+          message: "College, department, and programme are required.",
+          severity: "error",
+        });
+        return;
+      }
+      if (!formData.courses.length) {
+        setSnackbar({
+          open: true,
+          message: "Select at least one course before saving.",
+          severity: "error",
+        });
+        return;
+      }
       const payload = {
         ...formData,
         // ensure numeric semester/level
         semester: Number(formData.semester),
         level: Number(formData.level),
+        courses: formData.courses.map(String),
       };
       if (editMode) {
         await updateApproval({
@@ -283,7 +423,7 @@ const ApprovedCourses = () => {
     setSnackbar((prev) => ({ ...prev, open: false }));
 
   const semesters = [1, 2];
-  const levels = [100, 200, 300, 400];
+  const levels = [100, 200, 300, 400, 500];
 
   const groupCheckStateToProps = (state) => ({
     checked: state === "all",
@@ -452,7 +592,12 @@ const ApprovedCourses = () => {
                                       unmountOnExit
                                     >
                                       <Grid container spacing={2} sx={{ p: 2 }}>
-                                        {approvalsForLevel.map((approval) => (
+                                        {approvalsForLevel.map((approval) => {
+                                          const collegeDisplay = approval.college?.name || approval.collegeName || "—";
+                                          const departmentDisplay = approval.department?.name || approval.departmentName || "—";
+                                          const programmeDisplay = approval.programme?.name || approval.programmeName || "—";
+                                          const programmeTypeDisplay = approval.programme?.degreeType || approval.programmeType || "—";
+                                          return (
                                           <Grid item xs={12} md={6} lg={4} key={approval._id}>
                                             <Card variant="outlined" sx={{ height: "100%" }}>
                                               <CardContent>
@@ -464,7 +609,13 @@ const ApprovedCourses = () => {
                                                 >
                                                   <Box>
                                                     <Typography variant="subtitle1" fontWeight={600}>
-                                                      {approval.college}
+                                                      {collegeDisplay}
+                                                    </Typography>
+                                                    <Typography variant="body2" color="text.secondary">
+                                                      {departmentDisplay} • {programmeDisplay}
+                                                    </Typography>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                      Programme Type: {programmeTypeDisplay}
                                                     </Typography>
                                                     <Typography variant="caption" color="text.secondary">
                                                       {approval.courses?.length || 0} course(s) approved
@@ -529,7 +680,8 @@ const ApprovedCourses = () => {
                                               </CardContent>
                                             </Card>
                                           </Grid>
-                                        ))}
+                                          );
+                                        })}
                                       </Grid>
                                     </Collapse>
                                   </Card>
@@ -556,9 +708,21 @@ const ApprovedCourses = () => {
         Approved Courses For Session and Semester
       </Typography>
 
+      {!isLoadingInstitutions && institutionsUnavailable && (
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          No colleges or programmes are available. Configure institutional data before creating new
+          approvals.
+        </Alert>
+      )}
+
       {/* Add New Button */}
       <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 2 }}>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => handleOpenDialog()}>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => handleOpenDialog()}
+          disabled={isLoadingInstitutions || institutionsUnavailable}
+        >
           Add New Approval
         </Button>
       </Box>
@@ -606,17 +770,88 @@ const ApprovedCourses = () => {
         </DialogTitle>
         <DialogContent dividers>
           <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12} sm={6}>
+            <Grid item xs={12} md={3}>
               <TextField
                 fullWidth
+                select
                 label="College"
-                name="college"
-                value={formData.college}
+                name="collegeId"
+                value={formData.collegeId}
                 onChange={handleChange}
                 required
+                disabled={isLoadingInstitutions || institutionsUnavailable}
+              >
+                <MenuItem value="" disabled>
+                  <em>Select College</em>
+                </MenuItem>
+                {colleges.map((college) => (
+                  <MenuItem key={college.id} value={college.id}>
+                    {college.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <TextField
+                fullWidth
+                select
+                label="Department"
+                name="departmentId"
+                value={formData.departmentId}
+                onChange={handleChange}
+                required
+                disabled={
+                  isLoadingInstitutions ||
+                  institutionsUnavailable ||
+                  departmentOptions.length === 0
+                }
+              >
+                <MenuItem value="" disabled>
+                  <em>Select Department</em>
+                </MenuItem>
+                {departmentOptions.map((department) => (
+                  <MenuItem key={department.id} value={department.id}>
+                    {department.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <TextField
+                fullWidth
+                select
+                label="Programme"
+                name="programmeId"
+                value={formData.programmeId}
+                onChange={handleChange}
+                required
+                disabled={
+                  isLoadingInstitutions ||
+                  institutionsUnavailable ||
+                  programmeOptions.length === 0
+                }
+              >
+                <MenuItem value="" disabled>
+                  <em>Select Programme</em>
+                </MenuItem>
+                {programmeOptions.map((programme) => (
+                  <MenuItem key={programme.id} value={programme.id}>
+                    {programme.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            <Grid item xs={12} md={3}>
+              <TextField
+                fullWidth
+                label="Programme Type"
+                value={selectedProgramme?.degreeType || ""}
+                InputProps={{ readOnly: true }}
+                helperText="Derived from selected programme"
               />
             </Grid>
-            <Grid item xs={12} sm={6}>
+
+            <Grid item xs={12} md={4}>
               <TextField
                 select
                 fullWidth
@@ -637,7 +872,7 @@ const ApprovedCourses = () => {
                 ))}
               </TextField>
             </Grid>
-            <Grid item xs={12} sm={6}>
+            <Grid item xs={12} md={4}>
               <TextField
                 fullWidth
                 select
@@ -654,7 +889,7 @@ const ApprovedCourses = () => {
                 ))}
               </TextField>
             </Grid>
-            <Grid item xs={12} sm={6}>
+            <Grid item xs={12} md={4}>
               <TextField
                 fullWidth
                 select
