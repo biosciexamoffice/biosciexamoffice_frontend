@@ -14,6 +14,7 @@ import { registrationFormsApi } from "./api/registrationFormsApi";
 import { authApi } from "./api/authApi";
 import { approvalApi } from "./api/approvalApi";
 import { institutionApi } from "./api/institutionApi";
+import { syncApi } from "./api/syncApi";
 import authReducer from "./features/authSlice";
 import envReducer from "./features/envSlice";
  
@@ -35,6 +36,7 @@ const store = configureStore({
         [authApi.reducerPath]: authApi.reducer,
         [approvalApi.reducerPath]: approvalApi.reducer,
         [institutionApi.reducerPath]: institutionApi.reducer,
+        [syncApi.reducerPath]: syncApi.reducer,
     
     },
 
@@ -54,6 +56,7 @@ const store = configureStore({
             .concat(authApi.middleware)
             .concat(approvalApi.middleware)
             .concat(institutionApi.middleware)
+            .concat(syncApi.middleware)
     }
 })
 
@@ -184,6 +187,11 @@ export {
 export {
   useGetPendingApprovalsQuery,
 } from './api/approvalApi';
+
+export {
+  useTriggerSyncPullMutation,
+  useTriggerSyncPushMutation,
+} from './api/syncApi';
 
 export {
   useGetCollegesQuery,

@@ -8,14 +8,21 @@ import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
+import ListItemIcon from "@mui/material/ListItemIcon";
+import ListItemText from "@mui/material/ListItemText";
 import Stack from "@mui/material/Stack";
 import Chip from "@mui/material/Chip";
 import Avatar from "@mui/material/Avatar";
 import Divider from "@mui/material/Divider";
 import Tooltip from "@mui/material/Tooltip";
+import Snackbar from "@mui/material/Snackbar";
+import Alert from "@mui/material/Alert";
+import CircularProgress from "@mui/material/CircularProgress";
+import CloudDownloadIcon from "@mui/icons-material/CloudDownload";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import LogoutIcon from "@mui/icons-material/Logout";
 import MenuIcon from "@mui/icons-material/Menu";
-import { logout, selectCurrentRoles, selectCurrentUser } from "../../store";
+import { logout, selectCurrentRoles, selectCurrentUser, selectIsReadOnly, useTriggerSyncPullMutation, useTriggerSyncPushMutation } from "../../store";
 import { ROLE_LABELS } from "../../constants/officerConfig";
 
 const Navbar = () => {
@@ -23,8 +30,40 @@ const Navbar = () => {
   const navigate = useNavigate();
   const user = useSelector(selectCurrentUser);
   const roles = useSelector(selectCurrentRoles);
+  const readOnly = useSelector(selectIsReadOnly);
   const [anchorEl, setAnchorEl] = useState(null);
   const [profileAnchorEl, setProfileAnchorEl] = useState(null);
+  const [syncFeedback, setSyncFeedback] = useState({ open: false, severity: 'success', message: '' });
+  const [syncLoading, setSyncLoading] = useState(null);
+  const [triggerSyncPull] = useTriggerSyncPullMutation();
+  const [triggerSyncPush] = useTriggerSyncPushMutation();
+  const canSync = useMemo(() => roles.some((role) => ['ADMIN', 'EXAM_OFFICER'].includes(role)), [roles]);
+
+  const handleSync = async (mode) => {
+    setProfileAnchorEl(null);
+    if (!canSync) return;
+    if (readOnly) {
+      setSyncFeedback({ open: true, severity: 'info', message: 'Sync actions are disabled while connected to the read-only replica.' });
+      return;
+    }
+
+    setSyncLoading(mode);
+    try {
+      const response = mode === 'pull' ? await triggerSyncPull().unwrap() : await triggerSyncPush().unwrap();
+      const summary = Array.isArray(response?.summary) ? response.summary : [];
+      const total = summary.reduce((acc, item) => acc + (item.imported || item.exported || 0), 0);
+      const verb = mode === 'pull' ? 'Pulled' : 'Pushed';
+      const message = total
+        ? `${verb} ${total} document${total === 1 ? '' : 's'} across ${summary.length} collection${summary.length === 1 ? '' : 's'}.`
+        : `${verb} with no changes.`;
+      setSyncFeedback({ open: true, severity: 'success', message });
+    } catch (error) {
+      const message = error?.data?.message || error?.error || 'Unable to complete sync operation.';
+      setSyncFeedback({ open: true, severity: 'error', message });
+    } finally {
+      setSyncLoading(null);
+    }
+  };
 
   const navLinks = useMemo(() => {
     const links = [{ label: 'Dashboard', path: '/' }];
@@ -151,6 +190,35 @@ const Navbar = () => {
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
+        {canSync && [
+          (
+            <MenuItem
+              key="sync-pull"
+              disabled={syncLoading === 'pull'}
+              onClick={() => handleSync('pull')}
+            >
+              <ListItemIcon>
+                {syncLoading === 'pull' ? <CircularProgress size={18} /> : <CloudDownloadIcon fontSize="small" />}
+              </ListItemIcon>
+              <ListItemText primary="Pull latest from Atlas" />
+            </MenuItem>
+          ),
+          (
+            <MenuItem
+              key="sync-push"
+              disabled={syncLoading === 'push'}
+              onClick={() => handleSync('push')}
+            >
+              <ListItemIcon>
+                {syncLoading === 'push' ? <CircularProgress size={18} /> : <CloudUploadIcon fontSize="small" />}
+              </ListItemIcon>
+              <ListItemText primary="Push updates to Atlas" />
+            </MenuItem>
+          ),
+          (
+            <Divider key="sync-divider" sx={{ my: 0.5 }} />
+          ),
+        ]}
         <MenuItem
           onClick={() => {
             setProfileAnchorEl(null);
@@ -169,6 +237,20 @@ const Navbar = () => {
           <LogoutIcon fontSize="small" sx={{ mr: 1 }} /> Logout
         </MenuItem>
       </Menu>
+      <Snackbar
+        open={syncFeedback.open}
+        autoHideDuration={5000}
+        onClose={() => setSyncFeedback((prev) => ({ ...prev, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          onClose={() => setSyncFeedback((prev) => ({ ...prev, open: false }))}
+          severity={syncFeedback.severity}
+          sx={{ width: '100%' }}
+        >
+          {syncFeedback.message}
+        </Alert>
+      </Snackbar>
     </AppBar>
   );
 };
