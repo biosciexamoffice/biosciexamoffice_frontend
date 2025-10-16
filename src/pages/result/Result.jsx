@@ -3,7 +3,7 @@ import { useSelector } from "react-redux";
 
 // use the barrel you already have (works in your repo)
 import {
-  useGetAllResultsQuery,
+  useGetResultsSummaryQuery,
   useGetSessionsQuery,
   selectIsReadOnly,
 } from "../../store";
@@ -126,7 +126,12 @@ function ResultDashboard() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedResult, setSelectedResult] = useState(null);
 
-  const { data: allResultsForDashboard = [], isLoading: isLoadingDashboard } = useGetAllResultsQuery();
+  const {
+    data: summaryPayload,
+    isLoading: isSummaryLoading,
+    isError: isSummaryError,
+    error: summaryError,
+  } = useGetResultsSummaryQuery();
   const { data: sessions = [] } = useGetSessionsQuery();
 
   const handleViewChange = (nextView, closeDrawer = false) => {
@@ -141,33 +146,23 @@ function ResultDashboard() {
   };
 
   // Derive course aggregates from results
-  const coursesWithResults = useMemo(() => {
-    if (!allResultsForDashboard?.length) return [];
-    const resultMap = new Map();
-    allResultsForDashboard.forEach(result => {
-      if (result.course && result.course._id) {
-        const key = `${result.level}-${result.department}-${result.session}-${result.semester}-${result.course._id}`;
-        if (!resultMap.has(key)) {
-          resultMap.set(key, {
-            ...result.course,
-            level: result.level,
-            department: result.department,
-            session: result.session,
-            semester: result.semester,
-            lecturer: result.lecturer,
-            resultsCount: 0,
-            lastUpdated: result.updatedAt || result.createdAt,
-          });
-        }
-        const entry = resultMap.get(key);
-        entry.resultsCount = (entry.resultsCount || 0) + 1;
-        if (result.updatedAt && (!entry.lastUpdated || new Date(result.updatedAt) > new Date(entry.lastUpdated))) {
-          entry.lastUpdated = result.updatedAt;
-        }
-      }
-    });
-    return Array.from(resultMap.values());
-  }, [allResultsForDashboard]);
+  const repositoryItems = useMemo(() => {
+    const items = Array.isArray(summaryPayload?.items) ? summaryPayload.items : [];
+    return items.map((item) => ({
+      _id: item.course?.["_id"] || item.courseId,
+      code: item.course?.code || '',
+      title: item.course?.title || '',
+      unit: item.course?.unit ?? null,
+      session: item.session,
+      semester: item.semester,
+      level: String(item.level || ''),
+      department: item.department || '',
+      lecturer: item.lecturer || null,
+      resultsCount: item.resultsCount || 0,
+      lastUpdated: item.lastUpdated || null,
+      courseId: item.courseId,
+    }));
+  }, [summaryPayload]);
 
   // ---------- quick filters (for the repository/cards/table views)
   const [filters, setFilters] = useState({
@@ -182,7 +177,7 @@ function ResultDashboard() {
 
   const filteredCourses = useMemo(() => {
     const q = filters.q.trim().toLowerCase();
-    return coursesWithResults.filter(c => {
+    return repositoryItems.filter(c => {
       if (filters.session && c.session !== filters.session) return false;
       if (filters.department && c.department !== filters.department) return false;
       if (filters.level && String(c.level) !== String(filters.level)) return false;
@@ -193,19 +188,19 @@ function ResultDashboard() {
       }
       return true;
     });
-  }, [coursesWithResults, filters]);
+  }, [repositoryItems, filters]);
 
   // derive recent activity (top 6)
   const recentCourses = useMemo(() => {
-    const arr = [...coursesWithResults];
+    const arr = [...repositoryItems];
     arr.sort((a,b) => new Date(b.lastUpdated || 0) - new Date(a.lastUpdated || 0));
     return arr.slice(0, 6);
-  }, [coursesWithResults]);
+  }, [repositoryItems]);
 
   // stats
-  const totalResults = allResultsForDashboard.length || 0;
-  const totalCourses = coursesWithResults.length || 0;
-  const avgPerCourse = totalCourses ? Math.round(totalResults / totalCourses) : 0;
+  const totalResults = summaryPayload?.totalResults || 0;
+  const totalCourses = summaryPayload?.totalCourses || 0;
+  const avgPerCourse = summaryPayload?.avgPerCourse || 0;
 
   const handleEditClick = (result) => {
     if (guardReadOnly()) return;
@@ -237,8 +232,8 @@ function ResultDashboard() {
       {listMode === 'repository' && (
         <ResultList
           courses={filteredCourses}
-          allResults={allResultsForDashboard}
-          isLoading={isLoadingDashboard}
+          isLoading={isSummaryLoading}
+          isError={isSummaryError}
           onEdit={handleEditClick}
           readOnly={readOnly}
         />
@@ -303,6 +298,11 @@ function ResultDashboard() {
       default:
         return (
           <Stack spacing={2}>
+            {isSummaryError && (
+              <Alert severity="error">
+                {summaryError?.data?.message || summaryError?.error || summaryError?.message || 'Unable to load results overview.'}
+              </Alert>
+            )}
             {/* stats + quick actions */}
             <Grid container spacing={2}>
               <Grid item xs={12} md={8}>
@@ -362,7 +362,7 @@ function ResultDashboard() {
   const baseDrawerItems = useMemo(() => (
     [
       { text: 'Dashboard', icon: <DashboardIcon />, view: 'dashboard', badge: null },
-      { text: 'Result Repository', icon: <ListAltIcon />, view: 'list', badge: allResultsForDashboard?.length || 0 },
+      { text: 'Result Repository', icon: <ListAltIcon />, view: 'list', badge: totalResults },
       { text: 'Quick Compute', icon: <TuneIcon />, view: 'quick', badge: null },
       { text: 'Compute Results', icon: <AssessmentIcon />, view: 'compute', badge: null },
       { text: 'Upload Results', icon: <CloudUploadIcon />, view: 'upload', badge: null },
@@ -371,7 +371,7 @@ function ResultDashboard() {
       { text: 'Upload Old Metrics', icon: <CloudUploadIcon />, view: 'uploadOld', badge: null },
       { text: 'Download', icon: <TableViewIcon />, view: 'download', badge: null },
     ]
-  ), [allResultsForDashboard?.length]);
+  ), [totalResults]);
 
   const drawerItems = useMemo(() => (
     readOnly ? baseDrawerItems.filter((item) => !RESTRICTED_RESULT_VIEWS.has(item.view)) : baseDrawerItems

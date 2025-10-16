@@ -21,7 +21,7 @@ import LoadingButton from '@mui/lab/LoadingButton';
 // hooks (same slices you already use)
 import { useGetSessionsQuery } from "../../../store/api/sessionApi";
 import { useLazySearchMetricsQuery } from "../../../store/api/academicMetricsApi";
-import { useGetAllResultsQuery } from "../../../store/api/resultApi";
+import { useLazyGetAllResultsQuery } from "../../../store/api/resultApi";
 import { useGetApprovedCoursesByCriteriaQuery } from "../../../store/api/approvedCoursesApi";
 import { useLazySearchCourseRegistrationsQuery } from "../../../store/api/courseRegistrationApi";
 
@@ -174,7 +174,7 @@ export default function QuickCompute() {
   const errorRef = useRef(null);
 
   const { data: sessions = [] } = useGetSessionsQuery();
-  const { data: allResults = [] } = useGetAllResultsQuery();
+  const [fetchTermResults, { data: fetchedTermResults = [], isFetching: isFetchingResults }] = useLazyGetAllResultsQuery();
 
   const [searchMetrics, { data: metricsPayload, isFetching: isFetchingMetrics, isError, error }] =
     useLazySearchMetricsQuery();
@@ -201,11 +201,19 @@ export default function QuickCompute() {
     e?.preventDefault?.();
     if (!formData.session || !formData.semester || !formData.level) return;
     setPage(0);
-    await searchMetrics({
-      session: formData.session,
-      semester: formData.semester,
-      level: formData.level,
-    });
+    await Promise.all([
+      searchMetrics({
+        session: formData.session,
+        semester: formData.semester,
+        level: formData.level,
+      }),
+      fetchTermResults({
+        session: formData.session,
+        semester: formData.semester,
+        level: formData.level,
+        limit: 0,
+      }).unwrap().catch(() => []),
+    ]);
   };
 
   const handleReset = () => {
@@ -218,15 +226,8 @@ export default function QuickCompute() {
   // ---------- Build term results & courses list ----------
   const termResults = useMemo(() => {
     if (!formData.session || !formData.semester || !formData.level) return [];
-    const sem = Number(formData.semester);
-    const lvl = String(formData.level);
-    return (allResults || []).filter(r =>
-      r?.session === formData.session &&
-      Number(r?.semester) === sem &&
-      String(r?.level) === lvl &&
-      r?.student && r?.course
-    );
-  }, [allResults, formData.session, formData.semester, formData.level]);
+    return Array.isArray(fetchedTermResults) ? fetchedTermResults : [];
+  }, [fetchedTermResults, formData.session, formData.semester, formData.level]);
 
   const coursesForTerm = useMemo(() => {
     const map = new Map();
@@ -549,7 +550,7 @@ export default function QuickCompute() {
 
             <Grid item xs={12} md={4}>
               <Stack direction="row" spacing={1} justifyContent={{ xs: 'stretch', md: 'flex-end' }}>
-                <LoadingButton type="submit" loading={isFetchingMetrics} variant="contained" color="primary" sx={{ minWidth: 180 }}>
+                <LoadingButton type="submit" loading={isFetchingMetrics || isFetchingResults} variant="contained" color="primary" sx={{ minWidth: 180 }}>
                   Get Metrics
                 </LoadingButton>
                 <Tooltip title="Re-run GET with current filters">

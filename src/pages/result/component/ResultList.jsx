@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Paper, IconButton, Tooltip, CircularProgress, Alert, Box, Typography,
@@ -33,10 +33,11 @@ import {
   useDeleteResultMutation,
   useDeleteAllResultsForCourseMutation,
   useUpdateResultMutation,
+  useLazyGetResultsByCourseQuery,
 } from "../../../store";
 import ResultDetailsModal from "./ResultDetailsModal";
 
-function ResultList({ courses, allResults, isLoading, isError, onEdit, readOnly = false }) {
+function ResultList({ courses, isLoading, isError, onEdit, readOnly = false }) {
   const theme = useTheme();
   const showActions = !readOnly;
 
@@ -66,6 +67,9 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit, readOnly 
   const [overrides, setOverrides] = useState({}); // { [resultId]: { grandtotal, moderated, moderationStatus, moderationPendingGrandtotal, moderationProof, moderationAuthorizedPfNo } }
   const [approvingId, setApprovingId] = useState(null);
   const [rejectingId, setRejectingId] = useState(null);
+  const [triggerCourseResults, { isFetching: isFetchingCourse }] = useLazyGetResultsByCourseQuery();
+  const [courseResults, setCourseResults] = useState([]);
+  const [courseFetchError, setCourseFetchError] = useState(null);
 
   // expand states
   const [expandedSessions, setExpandedSessions] = useState({});
@@ -131,6 +135,47 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit, readOnly 
       return { ...p, [k]: !p[k] };
     });
 
+  useEffect(() => {
+    if (!selectedCourse) {
+      setCourseResults([]);
+      setCourseFetchError(null);
+      setResultQuery("");
+      return;
+    }
+    const courseId = selectedCourse._id || selectedCourse.courseId;
+    if (!courseId) {
+      setCourseResults([]);
+      setCourseFetchError('Invalid course reference.');
+      return;
+    }
+    let cancelled = false;
+    setCourseResults([]);
+    setResultQuery("");
+    setCourseFetchError(null);
+    triggerCourseResults({
+      courseId,
+      session: selectedCourse.session,
+      semester: selectedCourse.semester,
+      level: selectedCourse.level,
+      limit: 0,
+    })
+      .unwrap()
+      .then((data) => {
+        if (!cancelled) {
+          setCourseResults(Array.isArray(data) ? data : []);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setCourseResults([]);
+          setCourseFetchError(err?.data?.message || err?.error || 'Unable to fetch course results.');
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCourse, triggerCourseResults]);
+
   // actions
   const handleDeleteClick = (result) => {
     if (!showActions) return;
@@ -184,12 +229,9 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit, readOnly 
 
   // base list for selected course
   const resultsForSelectedCourse = useMemo(() => {
-    if (!selectedCourse || !Array.isArray(allResults)) return [];
-    const filtered = allResults.filter(r =>
-      r.course?._id === selectedCourse._id &&
-      String(r.level) === String(selectedCourse.level) &&
-      String(r.session) === String(selectedCourse.session) &&
-      String(r.semester) === String(selectedCourse.semester)
+    if (!selectedCourse || !Array.isArray(courseResults)) return [];
+    const filtered = courseResults.filter((r) =>
+      String(r.course?._id || r.course) === String(selectedCourse._id || selectedCourse.courseId)
     );
     return [...filtered].sort((a, b) => {
       const pa = parseInt((a.student?.regNo || '').split('/')[1], 10);
@@ -197,7 +239,7 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit, readOnly 
       if (!isNaN(pa) && !isNaN(pb)) return pa - pb;
       return String(a.student?.regNo || '').localeCompare(String(b.student?.regNo || ''));
     });
-  }, [selectedCourse, allResults]);
+  }, [selectedCourse, courseResults]);
 
   // search filter in modal
   const filteredResultsForSelectedCourse = useMemo(() => {
@@ -678,7 +720,13 @@ function ResultList({ courses, allResults, isLoading, isError, onEdit, readOnly 
             />
           </Box>
 
-          {resultsForSelectedCourse.length > 0 ? (
+          {isFetchingCourse ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : courseFetchError ? (
+            <Alert severity="error">{courseFetchError}</Alert>
+          ) : resultsForSelectedCourse.length > 0 ? (
             filteredResultsForSelectedCourse.length > 0 ? (
               <TableContainer component={Paper} sx={{ mt: 2 }}>
                 <Table sx={{ minWidth: 650 }} aria-label="course results table">

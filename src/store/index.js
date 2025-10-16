@@ -105,6 +105,8 @@ export {
   useDeleteAllResultsForCourseMutation,
   useGetResultsByStudentQuery,
   useGetResultsByCourseQuery,
+  useLazyGetResultsByCourseQuery,
+  useGetResultsSummaryQuery,
   useUploadResultsMutation,
   useDeleteMultipleResultsMutation,
   useListResultsExportQuery,

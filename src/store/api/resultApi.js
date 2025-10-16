@@ -17,7 +17,7 @@ const resultApi = createApi({
 
     getAllResults: builder.query({
       query: (params) => {
-        const { regNo, courseCode, session, semester, level, name, q } = params || {};
+        const { regNo, courseCode, session, semester, level, name, q, course, resultType, limit, page } = params || {};
         const queryParams = new URLSearchParams();
         if (regNo) queryParams.append('regNo', regNo);
         if (courseCode) queryParams.append('courseCode', courseCode);
@@ -26,6 +26,10 @@ const resultApi = createApi({
         if (level) queryParams.append('level', level);
         if (name) queryParams.append('name', name);
         if (q) queryParams.append('q', q);
+        if (course) queryParams.append('course', course);
+        if (resultType) queryParams.append('resultType', resultType);
+        if (limit !== undefined && limit !== null) queryParams.append('limit', String(limit));
+        if (page !== undefined && page !== null) queryParams.append('page', String(page));
         return {
           url: `/results?${queryParams.toString()}`,
         };
@@ -102,8 +106,40 @@ const resultApi = createApi({
     }),
 
     getResultsByCourse: builder.query({
-      query: (courseId) => `/results?course=${courseId}`,
-      providesTags: (result, error, courseId) => [{ type: 'Result', id: `LIST-COURSE-${courseId}` }],
+      query: (params) => {
+        const { courseId, session, semester, level, limit, page } = typeof params === 'object' ? params : { courseId: params };
+        if (!courseId) {
+          throw new Error('courseId is required');
+        }
+        const qp = new URLSearchParams();
+        qp.append('course', courseId);
+        if (session) qp.append('session', session);
+        if (semester) qp.append('semester', String(semester));
+        if (level) qp.append('level', level);
+        if (limit !== undefined && limit !== null) qp.append('limit', String(limit));
+        if (page !== undefined && page !== null) qp.append('page', String(page));
+        return `/results?${qp.toString()}`;
+      },
+      providesTags: (result, error, params) => {
+        const courseId = typeof params === 'object' ? params?.courseId : params;
+        return [{ type: 'Result', id: `LIST-COURSE-${courseId}` }];
+      },
+    }),
+
+    getResultsSummary: builder.query({
+      query: (params) => {
+        const { session, semester, level } = params || {};
+        const qp = new URLSearchParams();
+        if (session) qp.append('session', session);
+        if (semester) qp.append('semester', String(semester));
+        if (level) qp.append('level', level);
+        const queryString = qp.toString();
+        return {
+          url: queryString ? `/results/summary?${queryString}` : '/results/summary',
+        };
+      },
+      transformResponse: (response) => response || { success: false, items: [], totalResults: 0, totalCourses: 0, avgPerCourse: 0 },
+      providesTags: [{ type: 'Result', id: 'SUMMARY' }],
     }),
 
     deleteMultipleResults: builder.mutation({
@@ -157,6 +193,8 @@ export const {
   useDeleteResultMutation,
   useGetResultsByStudentQuery,
   useGetResultsByCourseQuery,
+  useLazyGetResultsByCourseQuery,
+  useGetResultsSummaryQuery,
   useDeleteAllResultsForCourseMutation,
   useUploadResultsMutation,
   useDeleteMultipleResultsMutation,
