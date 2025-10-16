@@ -1,8 +1,8 @@
 import { useEffect } from 'react';
 import { useDispatch } from 'react-redux';
-import CssBaseline from '@mui/material/CssBaseline';
 import AppRouter from './routes/RouterConfig';
 import { fetchEnvironment } from './store';
+import AppThemeProvider from './theme/AppThemeProvider';
 
 function App() {
   const dispatch = useDispatch();
@@ -12,10 +12,9 @@ function App() {
   }, [dispatch]);
 
   return (
-    <>
-      <CssBaseline />
+    <AppThemeProvider>
       <AppRouter />
-    </>
+    </AppThemeProvider>
   );
 }
 

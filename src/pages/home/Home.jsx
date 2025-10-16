@@ -19,6 +19,7 @@ import {
 } from '@mui/material';
 import Features from './component/Features';
 import { selectCurrentRoles, selectCurrentUser, useGetPendingApprovalsQuery } from '../../store';
+import { ROLE_LABELS } from '../../constants/officerConfig';
 
 const APPROVAL_ONLY_ROLES = ['COLLEGE_OFFICER', 'HOD', 'DEAN'];
 const APPROVAL_ROLE_LABELS = {
@@ -235,41 +236,176 @@ function Home() {
       <Container maxWidth="lg" sx={{ position: 'relative', zIndex: 1 }}>
         <Grid
           container
-          spacing={6}
+          spacing={4}
           alignItems="center"
           justifyContent="center"
-          sx={{ mb: { xs: 4, md: 8 } }}
+          sx={{ mb: { xs: 5, md: 8 } }}
         >
           <Grid item xs={12} md={6}>
             <Fade in timeout={800}>
-              <Box>
+              <Stack spacing={3} sx={{ textAlign: { xs: 'center', md: 'left' } }}>
+                <Typography
+                  variant="overline"
+                  color="secondary"
+                  sx={{ letterSpacing: 2, fontWeight: 700 }}
+                >
+                  Welcome back, {user?.firstname || user?.surname || 'Officer'}
+                </Typography>
                 <Typography
                   component="h1"
-                  variant={isMobile ? 'h3' : 'h2'}
+                  variant={isMobile ? 'h4' : 'h2'}
                   color="text.primary"
-                  gutterBottom
                   sx={{
                     fontWeight: 700,
-                    lineHeight: 1.2,
-                    mb: 2,
+                    lineHeight: 1.1,
                     background: `linear-gradient(90deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
                     WebkitBackgroundClip: 'text',
                     WebkitTextFillColor: 'transparent',
                     display: 'inline-block',
                   }}
                 >
-                  Department Exam Office
+                  Empowering your Exam Office on every device
                 </Typography>
                 <Typography
-                  variant={isMobile ? 'h6' : 'h5'}
+                  variant={isMobile ? 'body1' : 'h6'}
                   color="text.secondary"
-                  paragraph
-                  sx={{ mb: 3 }}
                 >
-                  A Streamlined Workflow for Comprehensive Management of Exams, Results and Student
-                  Data.
+                  Manage approvals, compute metrics, and keep student records up to date with a workspace that adapts to your workflow.
                 </Typography>
-              </Box>
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  spacing={2}
+                  justifyContent={{ xs: 'center', md: 'flex-start' }}
+                >
+                  <Button
+                    component={RouterLink}
+                    to="/result"
+                    variant="contained"
+                    size="large"
+                  >
+                    Open Result Manager
+                  </Button>
+                  <Button
+                    component={RouterLink}
+                    to={roles.some((role) => APPROVAL_ONLY_ROLES.includes(role)) ? '/approvals' : '/profile'}
+                    variant="outlined"
+                    size="large"
+                    color="secondary"
+                  >
+                    {roles.some((role) => APPROVAL_ONLY_ROLES.includes(role)) ? 'Review Approvals' : 'Update Profile'}
+                  </Button>
+                </Stack>
+              </Stack>
+            </Fade>
+          </Grid>
+
+          <Grid item xs={12} md={6}>
+            <Fade in timeout={1000}>
+              <Card
+                elevation={4}
+                sx={{
+                  borderRadius: 3,
+                  backdropFilter: 'blur(12px)',
+                  background: (theme) =>
+                    theme.palette.mode === 'light'
+                      ? 'rgba(255,255,255,0.85)'
+                      : 'rgba(15,23,42,0.7)',
+                }}
+              >
+                <CardContent sx={{ p: { xs: 3, md: 4 }, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+                  <Stack spacing={1}>
+                    <Typography variant="subtitle2" color="text.secondary">
+                      Your roles
+                    </Typography>
+                    <Stack direction="row" spacing={1} flexWrap="wrap">
+                      {roles.length
+                        ? roles.map((role) => (
+                            <Chip
+                              key={role}
+                              label={ROLE_LABELS[role] || role}
+                              color={role === 'ADMIN' ? 'error' : 'primary'}
+                              variant={role === 'ADMIN' ? 'filled' : 'outlined'}
+                              size="small"
+                            />
+                          ))
+                        : <Chip label="Staff" size="small" />}
+                    </Stack>
+                  </Stack>
+
+                  <Divider flexItem />
+
+                  <Stack spacing={1.5}>
+                    <Typography variant="subtitle2" color="text.secondary">
+                      Quick links
+                    </Typography>
+                    {[
+                      ...(roles.includes('EXAM_OFFICER') || roles.includes('ADMIN')
+                        ? [
+                            {
+                              label: 'Result Manager',
+                              description: 'Upload scores, compute metrics and share reports.',
+                              path: '/result',
+                              variant: 'contained',
+                              color: 'primary',
+                            },
+                          ]
+                        : []),
+                      ...(roles.some((role) => APPROVAL_ONLY_ROLES.includes(role)) || roles.includes('ADMIN')
+                        ? [
+                            {
+                              label: 'Approvals Workspace',
+                              description: 'Review and approve departmental submissions.',
+                              path: '/approvals',
+                              variant: 'contained',
+                              color: 'secondary',
+                            },
+                          ]
+                        : []),
+                      ...(roles.includes('EXAM_OFFICER') || roles.includes('ADMIN')
+                        ? [
+                            {
+                              label: 'Student Registry',
+                              description: 'Manage enrolments and academic records.',
+                              path: '/student',
+                              variant: 'outlined',
+                              color: 'primary',
+                            },
+                          ]
+                        : []),
+                      {
+                        label: 'Profile & Security',
+                        description: 'Update contact details and manage password.',
+                        path: '/profile',
+                        variant: 'text',
+                        color: 'inherit',
+                      },
+                    ].map((link) => (
+                      <Button
+                        key={link.path}
+                        component={RouterLink}
+                        to={link.path}
+                        variant={link.variant}
+                        color={link.color}
+                        fullWidth
+                        sx={{
+                          justifyContent: 'flex-start',
+                          alignItems: 'flex-start',
+                          flexDirection: 'column',
+                          borderRadius: 2,
+                          gap: 0.5,
+                          py: 1.75,
+                          px: 2.5,
+                        }}
+                      >
+                        <Typography fontWeight={600}>{link.label}</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {link.description}
+                        </Typography>
+                      </Button>
+                    ))}
+                  </Stack>
+                </CardContent>
+              </Card>
             </Fade>
           </Grid>
         </Grid>

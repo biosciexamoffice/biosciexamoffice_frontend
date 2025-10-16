@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useContext, useMemo, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate, NavLink } from "react-router-dom";
 import AppBar from "@mui/material/AppBar";
@@ -12,9 +12,11 @@ import List from "@mui/material/List";
 import ListItem from "@mui/material/ListItem";
 import ListItemIcon from "@mui/material/ListItemIcon";
 import ListItemText from "@mui/material/ListItemText";
+import ListItemButton from "@mui/material/ListItemButton";
 import Stack from "@mui/material/Stack";
 import Chip from "@mui/material/Chip";
 import Avatar from "@mui/material/Avatar";
+import Drawer from "@mui/material/Drawer";
 import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
@@ -25,26 +27,37 @@ import LinearProgress from "@mui/material/LinearProgress";
 import Snackbar from "@mui/material/Snackbar";
 import Alert from "@mui/material/Alert";
 import CircularProgress from "@mui/material/CircularProgress";
+import useMediaQuery from "@mui/material/useMediaQuery";
+import { useTheme } from "@mui/material/styles";
+import Switch from "@mui/material/Switch";
+import ListSubheader from "@mui/material/ListSubheader";
 import CloudDownloadIcon from "@mui/icons-material/CloudDownload";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import LogoutIcon from "@mui/icons-material/Logout";
 import MenuIcon from "@mui/icons-material/Menu";
+import LightModeIcon from "@mui/icons-material/LightMode";
+import DarkModeIcon from "@mui/icons-material/DarkMode";
+import CloseIcon from "@mui/icons-material/Close";
 import { logout, selectCurrentRoles, selectCurrentUser, selectIsReadOnly, useTriggerSyncPullMutation, useTriggerSyncPushMutation } from "../../store";
 import { ROLE_LABELS } from "../../constants/officerConfig";
+import { ColorModeContext } from "../../theme/AppThemeProvider";
 
 const Navbar = () => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const colorMode = useContext(ColorModeContext);
   const user = useSelector(selectCurrentUser);
   const roles = useSelector(selectCurrentRoles);
   const readOnly = useSelector(selectIsReadOnly);
-  const [anchorEl, setAnchorEl] = useState(null);
   const [profileAnchorEl, setProfileAnchorEl] = useState(null);
   const [syncFeedback, setSyncFeedback] = useState({ open: false, severity: 'success', message: '' });
   const [syncLoading, setSyncLoading] = useState(null);
   const [syncDialog, setSyncDialog] = useState({ open: false, status: 'idle', mode: null, summary: [], message: '' });
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [triggerSyncPull] = useTriggerSyncPullMutation();
   const [triggerSyncPush] = useTriggerSyncPushMutation();
   const canSync = useMemo(() => roles.some((role) => ['ADMIN', 'EXAM_OFFICER'].includes(role)), [roles]);
@@ -66,6 +79,9 @@ const Navbar = () => {
   };
 
   const handleSync = async (mode) => {
+    if (mobileOpen) {
+      setMobileOpen(false);
+    }
     setProfileAnchorEl(null);
     if (!canSync) return;
     if (readOnly) {
@@ -164,87 +180,174 @@ const Navbar = () => {
   }, [user]);
 
   return (
-    <AppBar position="static" color="primary" enableColorOnDark>
-      <Toolbar sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-        <Typography
-          variant="h6"
-          component="div"
-          sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', gap: 2 }}
-        >
-          Exam Office Portal
-          <Stack direction="row" spacing={0.5} flexWrap="wrap">
-            {roles.map((role) => (
-              <Chip
-                key={role}
-                size="small"
-                color={role === 'ADMIN' ? 'error' : 'default'}
-                label={ROLE_LABELS[role] || role}
-              />
-            ))}
-          </Stack>
-        </Typography>
-
-        <Stack
-          direction="row"
-          spacing={1}
-          sx={{ alignItems: 'center', display: { xs: 'none', md: 'flex' } }}
-        >
-          {navLinks.map((item) => (
-            <Button
-              key={item.path}
-              color="inherit"
-              component={NavLink}
-              to={item.path}
-              sx={{ '&.active': { fontWeight: 700, borderBottom: '2px solid currentColor' } }}
-            >
-              {item.label}
-            </Button>
-          ))}
-        </Stack>
-
-        <Stack direction="row" spacing={1} alignItems="center">
-          <Tooltip title={user?.email || user?.pfNo || 'Profile'}>
-            <IconButton color="inherit" onClick={(event) => setProfileAnchorEl(event.currentTarget)}>
-              <Avatar sx={{ bgcolor: 'secondary.main' }}>{initials}</Avatar>
+    <>
+      <AppBar position="sticky" color="primary" enableColorOnDark elevation={1}>
+        <Toolbar sx={{ gap: 2, py: 1.25 }}>
+          {isMobile && (
+            <IconButton color="inherit" onClick={() => setMobileOpen(true)}>
+              <MenuIcon />
             </IconButton>
-          </Tooltip>
-          <IconButton
-            color="inherit"
-            sx={{ display: { xs: 'inline-flex', md: 'none' } }}
-            onClick={(event) => setAnchorEl(event.currentTarget)}
+          )}
+
+          <Stack
+            direction="row"
+            alignItems="center"
+            spacing={1.5}
+            sx={{ flexGrow: 1, minWidth: 0 }}
           >
-            <MenuIcon />
-          </IconButton>
-          <IconButton color="inherit" onClick={handleLogout}>
-            <LogoutIcon />
+            <Avatar
+              sx={{
+                bgcolor: 'secondary.main',
+                color: 'secondary.contrastText',
+                width: 36,
+                height: 36,
+                fontWeight: 700,
+              }}
+            >
+              EO
+            </Avatar>
+            <Stack spacing={0.25} sx={{ minWidth: 0 }}>
+              <Typography variant="h6" noWrap>
+                Exam Office Portal
+              </Typography>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                noWrap
+                sx={{ display: { xs: 'none', sm: 'block' } }}
+              >
+                University of Agriculture, Makurdi
+              </Typography>
+              {!isMobile && roles.length > 0 && (
+                <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                  {roles.map((role) => (
+                    <Chip
+                      key={role}
+                      size="small"
+                      color={role === 'ADMIN' ? 'error' : 'default'}
+                      label={ROLE_LABELS[role] || role}
+                    />
+                  ))}
+                </Stack>
+              )}
+            </Stack>
+          </Stack>
+
+          {!isMobile && (
+            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', mr: 2 }}>
+              {navLinks.map((item) => (
+                <Button
+                  key={item.path}
+                  color="inherit"
+                  component={NavLink}
+                  to={item.path}
+                  sx={{ '&.active': { fontWeight: 700, borderBottom: '2px solid currentColor' } }}
+                >
+                  {item.label}
+                </Button>
+              ))}
+            </Stack>
+          )}
+
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Tooltip title={colorMode.mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
+              <IconButton color="inherit" onClick={colorMode.toggleColorMode} aria-label="Toggle color mode">
+                {colorMode.mode === 'dark' ? <LightModeIcon /> : <DarkModeIcon />}
+              </IconButton>
+            </Tooltip>
+            <Tooltip title={user?.email || user?.pfNo || 'Profile'}>
+              <IconButton color="inherit" onClick={(event) => setProfileAnchorEl(event.currentTarget)}>
+                <Avatar sx={{ bgcolor: 'secondary.main' }}>{initials}</Avatar>
+              </IconButton>
+            </Tooltip>
+            {!isMobile && (
+              <Tooltip title="Sign out">
+                <IconButton color="inherit" onClick={handleLogout}>
+                  <LogoutIcon />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Stack>
+        </Toolbar>
+        {syncLoading && <LinearProgress color="secondary" />}
+      </AppBar>
+
+      <Drawer
+        anchor="left"
+        open={mobileOpen}
+        onClose={() => setMobileOpen(false)}
+        ModalProps={{ keepMounted: true }}
+        sx={{ '& .MuiDrawer-paper': { width: 300, p: 2, pt: 1 } }}
+      >
+        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+          <Stack spacing={0.25}>
+            <Typography variant="subtitle1" fontWeight={700}>
+              Quick Navigation
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Stay productive on the go
+            </Typography>
+          </Stack>
+          <IconButton onClick={() => setMobileOpen(false)}>
+            <CloseIcon />
           </IconButton>
         </Stack>
-      </Toolbar>
-      {syncLoading && <LinearProgress color="secondary" />}
 
-      <Menu
-        anchorEl={anchorEl}
-        open={Boolean(anchorEl)}
-        onClose={() => setAnchorEl(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-      >
-        {navLinks.map((item) => (
-          <MenuItem
-            key={item.path}
-            onClick={() => {
-              setAnchorEl(null);
-              navigate(item.path);
-            }}
-          >
-            {item.label}
-          </MenuItem>
-        ))}
-        <Divider sx={{ my: 0.5 }} />
-        <MenuItem onClick={handleLogout}>
-          <LogoutIcon fontSize="small" sx={{ mr: 1 }} /> Logout
-        </MenuItem>
-      </Menu>
+        <Divider sx={{ mb: 1 }} />
+
+        <List dense>
+          {navLinks.map((item) => (
+            <ListItemButton
+              key={item.path}
+              onClick={() => {
+                setMobileOpen(false);
+                navigate(item.path);
+              }}
+            >
+              <ListItemText primary={item.label} />
+            </ListItemButton>
+          ))}
+        </List>
+
+        <Divider sx={{ my: 1.5 }} />
+
+        <List
+          dense
+          subheader={<ListSubheader component="div" sx={{ bgcolor: 'transparent', px: 0 }}>Actions</ListSubheader>}
+        >
+          {canSync && (
+            <>
+              <ListItemButton onClick={() => handleSync('pull')} disabled={syncLoading === 'pull'}>
+                <ListItemIcon sx={{ minWidth: 40 }}>
+                  {syncLoading === 'pull' ? <CircularProgress size={18} /> : <CloudDownloadIcon fontSize="small" />}
+                </ListItemIcon>
+                <ListItemText primary="Pull latest from Atlas" />
+              </ListItemButton>
+              <ListItemButton onClick={() => handleSync('push')} disabled={syncLoading === 'push'}>
+                <ListItemIcon sx={{ minWidth: 40 }}>
+                  {syncLoading === 'push' ? <CircularProgress size={18} /> : <CloudUploadIcon fontSize="small" />}
+                </ListItemIcon>
+                <ListItemText primary="Push updates to Atlas" />
+              </ListItemButton>
+            </>
+          )}
+          <ListItem disableGutters disablePadding sx={{ mt: 0.5 }}>
+            <ListItemButton onClick={colorMode.toggleColorMode}>
+              <ListItemIcon sx={{ minWidth: 40 }}>
+                {colorMode.mode === 'dark' ? <LightModeIcon fontSize="small" /> : <DarkModeIcon fontSize="small" />}
+              </ListItemIcon>
+              <ListItemText primary="Dark mode" />
+              <Switch checked={colorMode.mode === 'dark'} />
+            </ListItemButton>
+          </ListItem>
+          <ListItemButton onClick={() => { setMobileOpen(false); handleLogout(); }}>
+            <ListItemIcon sx={{ minWidth: 40 }}>
+              <LogoutIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText primary="Logout" />
+          </ListItemButton>
+        </List>
+      </Drawer>
 
       <Menu
         anchorEl={profileAnchorEl}
@@ -383,7 +486,7 @@ const Navbar = () => {
           </DialogActions>
         )}
       </Dialog>
-    </AppBar>
+    </>
   );
 };
 

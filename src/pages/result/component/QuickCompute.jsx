@@ -310,7 +310,7 @@ export default function QuickCompute() {
       metricsStudents.length > 0;
 
     if (!canFetch) {
-      setRegSetsByCourseId({});
+      setRegSetsByCourseId((prev) => (Object.keys(prev).length ? {} : prev));
       return;
     }
 
@@ -335,9 +335,31 @@ export default function QuickCompute() {
         });
 
         const entries = await Promise.all(tasks);
-        if (!cancelled) setRegSetsByCourseId(Object.fromEntries(entries));
+        if (!cancelled) {
+          setRegSetsByCourseId((prev) => {
+            const next = Object.fromEntries(entries);
+            const prevKeys = Object.keys(prev);
+            const nextKeys = Object.keys(next);
+            if (prevKeys.length === nextKeys.length) {
+              const isSame = nextKeys.every((key) => {
+                const prevSet = prev[key];
+                const nextSet = next[key];
+                if (!(prevSet instanceof Set) || !(nextSet instanceof Set)) return false;
+                if (prevSet.size !== nextSet.size) return false;
+                for (const value of nextSet) {
+                  if (!prevSet.has(value)) return false;
+                }
+                return true;
+              });
+              if (isSame) return prev;
+            }
+            return next;
+          });
+        }
       } catch {
-        if (!cancelled) setRegSetsByCourseId({});
+        if (!cancelled) {
+          setRegSetsByCourseId((prev) => (Object.keys(prev).length ? {} : prev));
+        }
       }
     })();
 
