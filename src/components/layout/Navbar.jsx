@@ -62,14 +62,15 @@ const Navbar = () => {
   const [triggerSyncPush] = useTriggerSyncPushMutation();
   const canSync = useMemo(() => roles.some((role) => ['ADMIN', 'EXAM_OFFICER'].includes(role)), [roles]);
 
-  const formatSummaryItem = (entry) => {
-    const count = entry.exported ?? entry.imported ?? 0;
-    const parts = [`${count} document${count === 1 ? '' : 's'}`];
-    if (entry.mode === 'full') parts.push('full export');
-    if (entry.reason) parts.push(`reason: ${entry.reason}`);
-    if (entry.warning) parts.push(`warning: ${entry.warning}`);
-    return parts.join(' • ');
-  };
+const formatSummaryItem = (entry) => {
+  const count = entry.exported ?? entry.imported ?? 0;
+  const verb = entry.imported !== undefined ? 'imported' : 'exported';
+  const parts = [`${count} ${verb}`];
+  if (entry.mode === 'full') parts.push('full export');
+  if (entry.reason) parts.push(`reason: ${entry.reason}`);
+  if (entry.warning) parts.push(`warning: ${entry.warning}`);
+  return parts.join(' • ');
+};
 
   const handleDialogClose = () => {
     if (syncDialog.status === 'pending') {
@@ -89,15 +90,15 @@ const Navbar = () => {
       return;
     }
 
-    if (mode === 'push') {
-      setSyncDialog({
-        open: true,
-        status: 'pending',
-        mode,
-        summary: [],
-        message: 'Pushing updates to Atlas. This may take a moment.',
-      });
-    }
+    setSyncDialog({
+      open: true,
+      status: 'pending',
+      mode,
+      summary: [],
+      message: mode === 'pull'
+        ? 'Pulling updates from Atlas. Please keep this window open.'
+        : 'Pushing updates to Atlas. This may take a moment.',
+    });
 
     setSyncLoading(mode);
     try {
@@ -108,38 +109,28 @@ const Navbar = () => {
       const message = total
         ? `${verb} ${total} document${total === 1 ? '' : 's'} across ${summary.length} collection${summary.length === 1 ? '' : 's'}.`
         : `${verb} with no changes.`;
-      if (mode === 'push') {
-        const successMessage = total
-          ? `Push completed. ${total} document${total === 1 ? '' : 's'} across ${summary.length} collection${summary.length === 1 ? '' : 's'}.`
-          : 'Push completed. No changes detected.';
-        setSyncDialog({
-          open: true,
-          status: 'success',
-          mode,
-          summary,
-          message: successMessage,
-        });
-      } else {
-        setSyncFeedback({ open: true, severity: 'success', message });
-      }
+      const successMessage = total
+        ? `${verb} ${total} document${total === 1 ? '' : 's'} across ${summary.length} collection${summary.length === 1 ? '' : 's'}.`
+        : `${verb} completed. No changes detected.`;
+      setSyncDialog({
+        open: true,
+        status: 'success',
+        mode,
+        summary,
+        message: successMessage,
+      });
     } catch (error) {
       const message = error?.data?.message || error?.error || 'Unable to complete sync operation.';
-      if (mode === 'push') {
-        setSyncDialog({
-          open: true,
-          status: 'error',
-          mode,
-          summary: [],
-          message,
-        });
-      } else {
-        setSyncFeedback({ open: true, severity: 'error', message });
-      }
+      setSyncDialog({
+        open: true,
+        status: 'error',
+        mode,
+        summary: [],
+        message,
+      });
     } finally {
       setSyncLoading(null);
-      if (mode === 'push') {
-        setSyncDialog((prev) => ({ ...prev, status: prev.status === 'pending' ? 'idle' : prev.status }));
-      }
+      setSyncDialog((prev) => ({ ...prev, status: prev.status === 'pending' ? 'idle' : prev.status }));
     }
   };
 
@@ -403,9 +394,10 @@ const Navbar = () => {
           <LogoutIcon fontSize="small" sx={{ mr: 1 }} /> Logout
         </MenuItem>
       </Menu>
+
       <Snackbar
         open={syncFeedback.open}
-        autoHideDuration={5000}
+        autoHideDuration={4000}
         onClose={() => setSyncFeedback((prev) => ({ ...prev, open: false }))}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
@@ -426,14 +418,19 @@ const Navbar = () => {
         keepMounted
       >
         <DialogTitle>
-          {syncDialog.status === 'success' && 'Push Complete'}
-          {syncDialog.status === 'error' && 'Push Failed'}
-          {(syncDialog.status === 'pending' || syncDialog.status === 'idle') && 'Pushing Updates'}
+          {syncDialog.status === 'success' && (syncDialog.mode === 'pull' ? 'Pull Complete' : 'Push Complete')}
+          {syncDialog.status === 'error' && (syncDialog.mode === 'pull' ? 'Pull Failed' : 'Push Failed')}
+          {(syncDialog.status === 'pending' || syncDialog.status === 'idle') &&
+            (syncDialog.mode === 'pull' ? 'Pulling Updates' : 'Pushing Updates')}
         </DialogTitle>
         <DialogContent dividers>
           {(syncDialog.status === 'pending' || syncDialog.status === 'idle') && (
             <Stack spacing={2} sx={{ py: 1 }}>
-              <Typography variant="body1">Pushing updates to Atlas. Please keep this window open.</Typography>
+              <Typography variant="body1">
+                {syncDialog.mode === 'pull'
+                  ? 'Pulling updates from Atlas. Please keep this window open.'
+                  : 'Pushing updates to Atlas. This may take a moment.'}
+              </Typography>
               <LinearProgress color="secondary" />
             </Stack>
           )}
@@ -449,7 +446,9 @@ const Navbar = () => {
                   {syncDialog.summary.map((entry) => (
                     <ListItem key={entry.collection} disableGutters sx={{ py: 0.5 }}>
                       <ListItemIcon sx={{ minWidth: 32 }}>
-                        <CloudUploadIcon fontSize="small" color="primary" />
+                        {syncDialog.mode === 'pull'
+                          ? <CloudDownloadIcon fontSize="small" color="primary" />
+                          : <CloudUploadIcon fontSize="small" color="primary" />}
                       </ListItemIcon>
                       <ListItemText
                         primary={entry.collection}
@@ -460,7 +459,9 @@ const Navbar = () => {
                 </List>
               ) : (
                 <Typography variant="body2" color="text.secondary">
-                  No collections required updates during this push.
+                  {syncDialog.mode === 'pull'
+                    ? 'No collections required updates during this pull.'
+                    : 'No collections required updates during this push.'}
                 </Typography>
               )}
             </Stack>
@@ -470,7 +471,11 @@ const Navbar = () => {
             <Stack spacing={2} sx={{ py: 1 }}>
               <Stack direction="row" spacing={1.5} alignItems="center">
                 <ErrorOutlineIcon color="error" fontSize="large" />
-                <Typography variant="subtitle1">Unable to complete push to Atlas.</Typography>
+                <Typography variant="subtitle1">
+                  {syncDialog.mode === 'pull'
+                    ? 'Unable to complete pull from Atlas.'
+                    : 'Unable to complete push to Atlas.'}
+                </Typography>
               </Stack>
               <Typography variant="body2" color="text.secondary">
                 {syncDialog.message}

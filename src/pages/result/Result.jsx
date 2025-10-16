@@ -222,7 +222,17 @@ function ResultDashboard() {
           }
           setListMode(v);
         }}
-        sx={{ mb: 2 }}
+        variant="scrollable"
+        allowScrollButtonsMobile
+        sx={{
+          mb: 2,
+          '& .MuiTab-root': {
+            minHeight: 0,
+            py: 1,
+            px: 1.5,
+            fontSize: { xs: '0.85rem', md: '0.95rem' },
+          },
+        }}
       >
         <Tab value="repository" icon={<ViewListIcon />} iconPosition="start" label="Repository View" />
         <Tab value="cards" icon={<AppsIcon />} iconPosition="start" label="Cards View" />

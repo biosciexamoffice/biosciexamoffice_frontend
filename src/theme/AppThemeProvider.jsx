@@ -5,6 +5,7 @@ import {
   ThemeProvider,
   createTheme,
   responsiveFontSizes,
+  GlobalStyles,
 } from '@mui/material';
 
 const STORAGE_KEY = 'examOffice-color-mode';
@@ -125,6 +126,25 @@ export default function AppThemeProvider({ children }) {
     <ColorModeContext.Provider value={contextValue}>
       <ThemeProvider theme={theme}>
         <CssBaseline />
+        <GlobalStyles
+          styles={{
+            'html, body, #root': {
+              minHeight: '100%',
+            },
+            body: {
+              backgroundColor: theme.palette.background.default,
+              color: theme.palette.text.primary,
+              margin: 0,
+            },
+            a: {
+              color: 'inherit',
+              textDecoration: 'none',
+            },
+            '*': {
+              boxSizing: 'border-box',
+            },
+          }}
+        />
         {children}
       </ThemeProvider>
     </ColorModeContext.Provider>
