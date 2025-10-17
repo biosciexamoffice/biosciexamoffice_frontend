@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   TextField,
   Button,
+  Popper,
   Grid,
   Typography,
   Paper,
@@ -72,13 +73,15 @@ const SessionManager = () => {
 
   useEffect(() => {
     if (lecturersData.length > 0) {
-      setLecturers(lecturersData.map(lec => ({
-        id: lec._id,
-        pfNo: lec.pfNo,
-        name: lec.name,
-        department: lec.department,
-        label: `${lec.name} (${lec.pfNo}) - ${lec.department}`
-      })));
+      setLecturers(lecturersData.map(lec => {
+        return {
+          id: lec._id,
+          pfNo: lec.pfNo,
+          name: lec.name || 'Unnamed Lecturer',
+          department: lec.department?.name || 'Unknown Dept',
+          label: `${lec.name || 'Unnamed Lecturer'} (${lec.pfNo})`
+        };
+      }));
     }
   }, [lecturersData]);
 
@@ -320,30 +323,26 @@ const SessionManager = () => {
                     </Typography>
                   ) : (
                     <>
-                      {blockersPreview.length > 0 ? (
-                        <Box component="ul" sx={{ pl: 3, mb: 0 }}>
-                          {blockersPreview.map((reason) => (
-                            <Box component="li" key={reason}>
-                              <Typography variant="body2">{reason}</Typography>
-                            </Box>
-                          ))}
-                        </Box>
-                      ) : (
-                        <Typography variant="body2">
-                          Complete outstanding result processing to enable
-                          session closure.
-                        </Typography>
+                      {currentBlockers.length > 0 && (
+                        <>
+                          <Box component="ul" sx={{ pl: 3, mb: 0 }}>
+                            {blockersPreview.map((reason) => (
+                              <Box component="li" key={reason}>
+                                <Typography variant="body2">{reason}</Typography>
+                              </Box>
+                            ))}
+                          </Box>
+                          {currentBlockers.length > blockersPreview.length && (
+                            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+                              +{currentBlockers.length - blockersPreview.length} more to resolve
+                            </Typography>
+                          )}
+                        </>
                       )}
-                      {currentBlockers.length > blockersPreview.length && (
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{ mt: 0.5 }}
-                        >
-                          +
-                          {currentBlockers.length - blockersPreview.length} more
-                          to resolve
-                        </Typography>
+                      {currentBlockers.length === 0 && (
+                         <Typography variant="body2">
+                           Complete outstanding result processing to enable session closure.
+                         </Typography>
                       )}
                     </>
                   )
@@ -351,8 +350,7 @@ const SessionManager = () => {
                   <Typography variant="body2">
                     Close readiness data will appear once results processing
                     begins.
-                  </Typography>
-                )}
+                  </Typography>)}
                 {closeCheckedAt && (
                   <Typography
                     variant="caption"
@@ -453,30 +451,37 @@ const SessionManager = () => {
                     </Grid>
                   ) : (
                     <>
-                      <Grid item xs={12} md={4}>
-                        <Autocomplete
-                          options={lecturers}
-                          getOptionLabel={(option) => option.label}
-                          loading={isLecturersLoading}
-                          value={lecturers.find(l => l.pfNo === formData.dean) || null}
-                          onChange={(e, newValue) => {
-                            setFormData(prev => ({ ...prev, dean: newValue ? newValue.pfNo : '' }));
-                          }}
-                          renderInput={(params) => (
-                            <TextField
-                              {...params}
-                              label="Dean of College"
-                              error={!!errors.dean}
-                              helperText={errors.dean}
-                              required
-                            />
-                          )}
-                          noOptionsText="No lecturers found"
-                        />
+                      <Grid item xs={12} md={12}>
+                        <Autocomplete // Dean
+  options={lecturers}
+  getOptionLabel={(option) => option.label}
+  loading={isLecturersLoading}
+  value={lecturers.find((l) => l.pfNo === formData.dean) || null}
+  onChange={(e, newValue) => {
+    setFormData((prev) => ({
+      ...prev,
+      dean: newValue ? newValue.pfNo : '',
+    }));
+  }}
+  sx={{ width: '100%' }}
+  renderInput={(params) => (
+    <TextField
+      {...params}
+      label="Dean of College"
+      error={!!errors.dean}
+      helperText={errors.dean}
+      required
+    />
+  )}
+  PopperComponent={(props) => (
+    <Popper {...props} style={{ width: 'fit-content' }} />
+  )}
+  noOptionsText="No lecturers found"
+/>
                       </Grid>
                       
-                      <Grid item xs={12} md={4}>
-                        <Autocomplete
+                      <Grid item xs={12} md={12}>
+                        <Autocomplete // HOD
                           options={lecturers}
                           getOptionLabel={(option) => option.label}
                           loading={isLecturersLoading}
@@ -484,37 +489,29 @@ const SessionManager = () => {
                           onChange={(e, newValue) => {
                             setFormData(prev => ({ ...prev, hod: newValue ? newValue.pfNo : '' }));
                           }}
+                          sx={{ width: '100%' }}
                           renderInput={(params) => (
-                            <TextField
-                              {...params}
-                              label="Head of Department"
-                              error={!!errors.hod}
-                              helperText={errors.hod}
-                              required
-                            />
+                            <TextField {...params} label="Head of Department" error={!!errors.hod} helperText={errors.hod} required />
                           )}
+                          PopperComponent={(props) => <Popper {...props} style={{ width: 'fit-content' }} />}
                           noOptionsText="No lecturers found"
                         />
                       </Grid>
                       
-                      <Grid item xs={12} md={4}>
-                        <Autocomplete
-                          options={lecturers}
+                      <Grid item xs={12} md={12}>
+                        <Autocomplete // EO
+                          options={lecturers} 
                           getOptionLabel={(option) => option.label}
                           loading={isLecturersLoading}
                           value={lecturers.find(l => l.pfNo === formData.eo) || null}
                           onChange={(e, newValue) => {
                             setFormData(prev => ({ ...prev, eo: newValue ? newValue.pfNo : '' }));
                           }}
+                          sx={{ width: '100%' }}
                           renderInput={(params) => (
-                            <TextField
-                              {...params}
-                              label="Exam Officer"
-                              error={!!errors.eo}
-                              helperText={errors.eo}
-                              required
-                            />
+                            <TextField {...params} label="Exam Officer" error={!!errors.eo} helperText={errors.eo} required />
                           )}
+                          PopperComponent={(props) => <Popper {...props} style={{ width: 'fit-content' }} />}
                           noOptionsText="No lecturers found"
                         />
                       </Grid>

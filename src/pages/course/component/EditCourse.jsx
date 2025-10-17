@@ -37,6 +37,7 @@ function EditCourse({
   colleges = [],
   programmes = [],
   isLoadingInstitutions = false,
+  institutionError = null,
 }) {
   const [updateCourse, { isLoading, isError, error }] = useUpdateCourseMutation();
   const [inputs, setInputs] = useState({
@@ -106,6 +107,7 @@ function EditCourse({
   );
 
   const institutionsUnavailable = !colleges.length || !programmes.length;
+  const institutionGuardActive = Boolean(institutionError) || institutionsUnavailable;
 
   useEffect(() => {
     if (!open || !colleges.length) return;
@@ -217,7 +219,7 @@ function EditCourse({
     return null;
   }
 
-  if (!isLoadingInstitutions && institutionsUnavailable) {
+  if (!isLoadingInstitutions && institutionGuardActive) {
     return (
       <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
         <DialogTitle sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -227,9 +229,9 @@ function EditCourse({
           </IconButton>
         </DialogTitle>
         <DialogContent>
-          <Alert severity="warning">
-            No colleges or programmes are available. Configure institutional data before editing
-            courses.
+          <Alert severity={institutionError ? "error" : "warning"}>
+            {institutionError ||
+              "No colleges or programmes are available. Configure institutional data before editing courses."}
           </Alert>
         </DialogContent>
         <DialogActions sx={{ p: "16px 24px" }}>
@@ -363,7 +365,7 @@ function EditCourse({
                 onChange={handleInputChange}
                 fullWidth
                 required
-                disabled={isLoadingInstitutions || institutionsUnavailable}
+                disabled={isLoadingInstitutions || institutionGuardActive}
               >
                 {colleges.map((college) => (
                   <MenuItem key={college.id} value={college.id}>
@@ -383,12 +385,12 @@ function EditCourse({
                 required
                 disabled={
                   isLoadingInstitutions ||
-                  institutionsUnavailable ||
+                  institutionGuardActive ||
                   departmentOptions.length === 0
                 }
                 helperText={
-                  institutionsUnavailable
-                    ? "Institution data unavailable"
+                  institutionGuardActive
+                    ? institutionError || "Institution data unavailable"
                     : departmentOptions.length === 0
                     ? "No departments for the selected college"
                     : undefined
@@ -412,12 +414,12 @@ function EditCourse({
                 required
                 disabled={
                   isLoadingInstitutions ||
-                  institutionsUnavailable ||
+                  institutionGuardActive ||
                   programmeOptions.length === 0
                 }
                 helperText={
-                  institutionsUnavailable
-                    ? "Institution data unavailable"
+                  institutionGuardActive
+                    ? institutionError || "Institution data unavailable"
                     : programmeOptions.length === 0
                     ? "No programmes for the selected department"
                     : undefined

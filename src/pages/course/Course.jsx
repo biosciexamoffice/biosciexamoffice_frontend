@@ -65,10 +65,12 @@ function Course() {
   const {
     data: collegesData,
     isLoading: isLoadingColleges,
+    error: collegesError,
   } = useGetCollegesQuery();
   const {
     data: programmesData,
     isLoading: isLoadingProgrammes,
+    error: programmesError,
   } = useGetProgrammesQuery();
 
   const colleges = useMemo(() => collegesData?.colleges || [], [collegesData]);
@@ -81,6 +83,19 @@ function Course() {
     () => filterInstitutionsForUser(colleges, programmes, user, roles),
     [colleges, programmes, user, roles]
   );
+
+  const extractErrorMessage = (error) => {
+    if (!error) return null;
+    if (typeof error === 'string') return error;
+    if (error?.data?.message) return error.data.message;
+    if (error?.data?.error) return error.data.error;
+    if (error?.error) return error.error;
+    return 'Unable to load institutional data.';
+  };
+
+  const institutionError = useMemo(() => {
+    return extractErrorMessage(collegesError) || extractErrorMessage(programmesError);
+  }, [collegesError, programmesError]);
 
   // Auto-refresh data when switching views
   useEffect(() => {
@@ -119,6 +134,7 @@ function Course() {
             isLoading={loadingAllCourse}
             isError={errorAllCourse}
             onEdit={handleEditClick}
+            onAddNewCourse={() => setView("create")}
           />
         );
       case "create":
@@ -130,6 +146,7 @@ function Course() {
             colleges={scopedColleges}
             programmes={scopedProgrammes}
             isLoadingInstitutions={isLoadingColleges || isLoadingProgrammes}
+            institutionError={institutionError}
           />
         );
       case "upload":
@@ -138,6 +155,7 @@ function Course() {
             colleges={scopedColleges}
             programmes={scopedProgrammes}
             isLoadingInstitutions={isLoadingColleges || isLoadingProgrammes}
+            institutionError={institutionError}
           />
         );
       case "approved": // Add this case
@@ -146,6 +164,7 @@ function Course() {
             colleges={scopedColleges}
             programmes={scopedProgrammes}
             isLoadingInstitutions={isLoadingColleges || isLoadingProgrammes}
+            institutionError={institutionError}
           />
         );
       case "registration-upload":
@@ -154,6 +173,7 @@ function Course() {
             colleges={scopedColleges}
             programmes={scopedProgrammes}
             isLoadingInstitutions={isLoadingColleges || isLoadingProgrammes}
+            institutionError={institutionError}
           />
         );
       case "registrations":
@@ -314,6 +334,7 @@ function Course() {
           colleges={scopedColleges}
           programmes={scopedProgrammes}
           isLoadingInstitutions={isLoadingColleges || isLoadingProgrammes}
+          institutionError={institutionError}
         />
       )}
     </Box>

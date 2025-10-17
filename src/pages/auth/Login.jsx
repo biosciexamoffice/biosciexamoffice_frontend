@@ -141,8 +141,8 @@ const Login = () => {
           >
             <Box
               component="img"
-              src="/uam.jpeg"
-              alt="University of Agriculture Makurdi logo"
+              src="/joseph_sarwuan_tarka_university.jpeg"
+              alt="JOSEPH SARWUAN TARKA UNIVERSITY logo"
               sx={{
                 width: isMobile ? 72 : 84,
                 height: isMobile ? 72 : 84,
@@ -154,7 +154,7 @@ const Login = () => {
               }}
             />
             <Typography variant={isMobile ? 'h5' : 'h4'} fontWeight={700} gutterBottom>
-              University of Agriculture Makurdi
+              JOSEPH SARWUAN TARKA UNIVERSITY
             </Typography>
             <Typography variant="body2" sx={{ opacity: 0.9 }}>
               Exam Office Information Suite

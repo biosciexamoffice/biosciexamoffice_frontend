@@ -40,6 +40,7 @@ const CourseUpload = ({
   colleges = [],
   programmes = [],
   isLoadingInstitutions = false,
+  institutionError = null,
 }) => {
   const [inputs, setInputs] = useState({
     semester: "",
@@ -215,6 +216,7 @@ const CourseUpload = ({
   }, [selectedFile, inputs, uploadCourses, defaultInstitution]);
 
   const institutionsUnavailable = !colleges.length || !programmes.length;
+  const institutionGuardActive = Boolean(institutionError) || institutionsUnavailable;
   const canSubmit = Boolean(
     selectedFile &&
     inputs.level &&
@@ -224,7 +226,7 @@ const CourseUpload = ({
     inputs.programmeId &&
     !isLoading &&
     !isLoadingInstitutions &&
-    !institutionsUnavailable
+    !institutionGuardActive
   );
 
   return (
@@ -241,9 +243,10 @@ const CourseUpload = ({
           from this upload. Programme type is derived automatically from the selected programme.
         </Alert>
 
-        {(!isLoadingInstitutions && institutionsUnavailable) && (
-          <Alert severity="warning" sx={{ mb: 3 }}>
-            No colleges or programmes are available. Please configure institutional data before uploading courses.
+        {(!isLoadingInstitutions && institutionGuardActive) && (
+          <Alert severity={institutionError ? "error" : "warning"} sx={{ mb: 3 }}>
+            {institutionError ||
+              "No colleges or programmes are available. Please configure institutional data before uploading courses."}
           </Alert>
         )}
 
@@ -257,7 +260,7 @@ const CourseUpload = ({
                   name="level"
                   value={inputs.level}
                   onChange={handleInputs}
-                  disabled={isLoadingInstitutions || institutionsUnavailable}
+                  disabled={isLoadingInstitutions || institutionGuardActive}
                 >
                   <MenuItem value="" disabled>
                     <em>Select Level</em>
@@ -279,7 +282,7 @@ const CourseUpload = ({
                   name="semester"
                   value={inputs.semester}
                   onChange={handleInputs}
-                  disabled={isLoadingInstitutions || institutionsUnavailable}
+                  disabled={isLoadingInstitutions || institutionGuardActive}
                 >
                   <MenuItem value="" disabled>
                     <em>Select Semester</em>
@@ -301,7 +304,7 @@ const CourseUpload = ({
                   name="collegeId"
                   value={inputs.collegeId}
                   onChange={handleInputs}
-                  disabled={isLoadingInstitutions || institutionsUnavailable}
+                  disabled={isLoadingInstitutions || institutionGuardActive}
                 >
                   <MenuItem value="" disabled>
                     <em>Select College</em>
@@ -325,7 +328,7 @@ const CourseUpload = ({
                   onChange={handleInputs}
                   disabled={
                     isLoadingInstitutions ||
-                    institutionsUnavailable ||
+                    institutionGuardActive ||
                     departmentOptions.length === 0
                   }
                 >
@@ -338,9 +341,9 @@ const CourseUpload = ({
                     </MenuItem>
                   ))}
                 </Select>
-                {institutionsUnavailable ? (
+                {institutionGuardActive ? (
                   <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
-                    Institution data unavailable.
+                    {institutionError || "Institution data unavailable."}
                   </Typography>
                 ) : departmentOptions.length === 0 ? (
                   <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
@@ -360,7 +363,7 @@ const CourseUpload = ({
                   onChange={handleInputs}
                   disabled={
                     isLoadingInstitutions ||
-                    institutionsUnavailable ||
+                    institutionGuardActive ||
                     programmeOptions.length === 0
                   }
                 >
@@ -373,9 +376,9 @@ const CourseUpload = ({
                     </MenuItem>
                   ))}
                 </Select>
-                {institutionsUnavailable ? (
+                {institutionGuardActive ? (
                   <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
-                    Institution data unavailable.
+                    {institutionError || "Institution data unavailable."}
                   </Typography>
                 ) : programmeOptions.length === 0 ? (
                   <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
@@ -411,7 +414,7 @@ const CourseUpload = ({
                   borderWidth: 2,
                 },
               }}
-              disabled={isLoadingInstitutions || institutionsUnavailable}
+              disabled={isLoadingInstitutions || institutionGuardActive}
             >
               {fileName ? (
                 <>

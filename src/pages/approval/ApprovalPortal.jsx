@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { Link as RouterLink } from 'react-router-dom';
 import {
   useGetPendingApprovalsQuery,
   useUpdateMetricsMutation,
@@ -26,7 +27,6 @@ import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import TablePagination from '@mui/material/TablePagination';
-import MenuItem from '@mui/material/MenuItem';
 import Alert from '@mui/material/Alert';
 import Chip from '@mui/material/Chip';
 import Dialog from '@mui/material/Dialog';
@@ -39,9 +39,11 @@ import Grid from '@mui/material/Grid';
 import Card from '@mui/material/Card';
 import CardActionArea from '@mui/material/CardActionArea';
 import CardContent from '@mui/material/CardContent';
+import CardActions from '@mui/material/CardActions';
 import Collapse from '@mui/material/Collapse';
 import Avatar from '@mui/material/Avatar';
 import { useTheme } from '@mui/material/styles';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import {
   ExpandMore as ExpandMoreIcon,
   ChevronRight as ChevronRightIcon,
@@ -61,9 +63,8 @@ const officerKeysForRole = (roles) => {
   return officerRoles;
 };
 
-const TITLE_OPTIONS = ['Professor', 'Doctor', 'Mr', 'Mrs'];
 const APPROVAL_STAGES = OFFICER_CONFIG.map(({ key, label, shortLabel }) => ({ key, label: shortLabel || label }));
-const ROWS_PER_PAGE_OPTIONS = [10, 25, 50, 100];
+const ROWS_PER_PAGE_OPTIONS = [5, 10, 25, 50, 100];
 
 const buildOfficerDefaults = (user) => ({
   title: user?.title || '',
@@ -108,6 +109,8 @@ const ApprovalPortal = () => {
   const user = useSelector(selectCurrentUser);
   const readOnly = useSelector(selectIsReadOnly);
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const isTabletDown = useMediaQuery(theme.breakpoints.down('md'));
   const zeroBlinkSx = useMemo(
     () => ({
       color: theme.palette.error.main,
@@ -124,13 +127,7 @@ const ApprovalPortal = () => {
   const officerRoles = officerKeysForRole(roles);
   const defaultRole = officerRoles[0] || 'COLLEGE_OFFICER';
   const [activeRole, setActiveRole] = useState(defaultRole);
-  const [officerDetails, setOfficerDetails] = useState(() => {
-    const defaults = {};
-    OFFICER_CONFIG.forEach((config) => {
-      defaults[config.key] = buildOfficerDefaults(user);
-    });
-    return defaults;
-  });
+
   const [noteDialog, setNoteDialog] = useState({ open: false, metricsId: null, officer: null, note: '' });
   const [detailDialog, setDetailDialog] = useState({ open: false, item: null });
   const [actionError, setActionError] = useState('');
@@ -140,33 +137,24 @@ const ApprovalPortal = () => {
   const [expandedDepartments, setExpandedDepartments] = useState({});
   const [departmentPages, setDepartmentPages] = useState({});
   const [rowsPerPage, setRowsPerPage] = useState(ROWS_PER_PAGE_OPTIONS[0]);
-  useEffect(() => {
-    setOfficerDetails((prev) => {
-      const updated = { ...prev };
-      OFFICER_CONFIG.forEach((config) => {
-        updated[config.key] = {
-          ...buildOfficerDefaults(user),
-          ...(prev[config.key] || {}),
-        };
-      });
-      return updated;
-    });
-  }, [user]);
-
   const effectiveRole = officerRoles.includes(activeRole) ? activeRole : officerRoles[0];
   const officer = ROLE_TO_OFFICER[effectiveRole] || OFFICER_CONFIG[0];
   const officerKey = officer.key;
-  const activeOfficerProfile = officerDetails[officerKey] || buildOfficerDefaults(user);
+  const activeOfficerProfile = buildOfficerDefaults(user);
   const officerProfileComplete = isOfficerProfileComplete(activeOfficerProfile);
 
+  const listLimit = effectiveRole === 'COLLEGE_OFFICER' ? 500 : 200;
+
   const { data, isFetching } = useGetPendingApprovalsQuery(
-    { role: effectiveRole },
+    { role: effectiveRole, limit: listLimit },
     { skip: !officerRoles.length }
   );
 
   const [updateMetrics, { isLoading: isUpdating }] = useUpdateMetricsMutation();
 
   const pending = data?.items || [];
+  const totalPending = data?.total ?? pending.length;
+  const isTruncated = Boolean(data?.total && data.total > pending.length);
   const groupedBySession = useMemo(() => {
     if (!pending.length) return {};
     const groups = {};
@@ -267,16 +255,6 @@ const ApprovalPortal = () => {
     );
   }
 
-  const updateOfficerProfile = (field, value) => {
-    setOfficerDetails((prev) => ({
-      ...prev,
-      [officerKey]: {
-        ...(prev[officerKey] || buildOfficerDefaults(user)),
-        [field]: value,
-      },
-    }));
-  };
-
   const submitApproval = async ({ metricsId, approved, note, flagged, onSuccess }) => {
     if (readOnly) {
       setActionError('Approvals are disabled while you are connected to the read-only replica.');
@@ -321,7 +299,7 @@ const ApprovalPortal = () => {
         dispatch(
           approvalApi.util.updateQueryData(
             'getPendingApprovals',
-            { role: effectiveRole },
+            { role: effectiveRole, limit: listLimit },
             (draft) => {
               if (!draft?.items) return;
               const index = draft.items.findIndex((item) => item.metricsId === metricsId);
@@ -444,6 +422,120 @@ const ApprovalPortal = () => {
     const paginatedItems = items.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
     const totalPages = Math.ceil(items.length / rowsPerPage);
 
+    if (isTabletDown) {
+      return (
+        <Box>
+          <Stack spacing={2} sx={{ mb: 2 }}>
+            {paginatedItems.map((item) => {
+              const regNo = item.student?.regNo || '—';
+              const fullName = item.student?.fullName || '—';
+              const currentTCE = Number(item.currentMetrics?.TCE || 0);
+              const currentGPAValue = Number(item.currentMetrics?.GPA || 0);
+              const currentGPA = currentGPAValue.toFixed(2);
+              const cgpaValue = Number(item.cumulative?.CGPA || 0);
+              const cgpa = cgpaValue.toFixed(2);
+              const highlightZero = (value) => Number(value) === 0;
+
+              return (
+                <Card key={item.metricsId} variant="outlined">
+                  <CardActionArea onClick={() => setDetailDialog({ open: true, item })} sx={{ p: 2 }}>
+                    <Stack spacing={1.25} alignItems="flex-start">
+                      <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ width: '100%' }}>
+                        <Typography variant="subtitle1" fontWeight={600}>{regNo}</Typography>
+                        <Chip
+                          size="small"
+                          color={cgpaValue >= 3.5 ? 'success' : cgpaValue < 1 ? 'error' : 'primary'}
+                          label={`CGPA ${cgpa}`}
+                        />
+                      </Stack>
+                      <Typography variant="body2" color="text.secondary">
+                        {fullName}
+                      </Typography>
+                      <Stack direction="row" spacing={1} flexWrap="wrap">
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          label={`TCE ${currentTCE}`}
+                          sx={highlightZero(currentTCE) ? zeroBlinkSx : undefined}
+                        />
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          color={currentGPAValue >= 3.5 ? 'success' : currentGPAValue < 1 ? 'error' : 'default'}
+                          label={`GPA ${currentGPA}`}
+                          sx={highlightZero(currentGPAValue) ? zeroBlinkSx : undefined}
+                        />
+                        <Typography variant="caption" color="text.secondary">
+                          {item.department || '—'}
+                        </Typography>
+                      </Stack>
+                    </Stack>
+                  </CardActionArea>
+                  <CardActions sx={{ px: 2, pb: 2, pt: 0, gap: 1, flexWrap: 'wrap' }}>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      fullWidth={isMobile}
+                      sx={{ flexGrow: 1 }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDetailDialog({ open: true, item });
+                      }}
+                    >
+                      Details
+                    </Button>
+                    <Button
+                      variant="contained"
+                      size="small"
+                      fullWidth={isMobile}
+                      sx={{ flexGrow: 1 }}
+                      disabled={isUpdating || !officerProfileComplete || readOnly}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleApprove(item);
+                      }}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      color="error"
+                      fullWidth={isMobile}
+                      sx={{ flexGrow: 1 }}
+                      disabled={isUpdating || readOnly}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenFlag(item);
+                      }}
+                    >
+                      Flag
+                    </Button>
+                  </CardActions>
+                </Card>
+              );
+            })}
+            {(!paginatedItems.length) && (
+              <Typography variant="body2" align="center" color="text.secondary">
+                No records available.
+              </Typography>
+            )}
+          </Stack>
+          {totalPages > 1 && (
+            <TablePagination
+              component="div"
+              count={items.length}
+              rowsPerPage={rowsPerPage}
+              rowsPerPageOptions={ROWS_PER_PAGE_OPTIONS}
+              page={page}
+              onPageChange={(_, newPage) => handleDepartmentPageChange(departmentKey, newPage)}
+              onRowsPerPageChange={handleRowsPerPageChange}
+            />
+          )}
+        </Box>
+      );
+    }
+
     return (
       <Box>
         <Table size="small">
@@ -534,9 +626,9 @@ const ApprovalPortal = () => {
   const renderFolderStructure = () => (
     <Box
       sx={{
-        maxWidth: 1400,
+        maxWidth: { xs: '100%', xl: 1400 },
         mx: 'auto',
-        p: 2,
+        p: { xs: 1, md: 2 },
         backgroundColor: theme.palette.background.paper,
         borderRadius: 2,
         boxShadow: theme.shadows[1],
@@ -561,7 +653,7 @@ const ApprovalPortal = () => {
                 onClick={() => toggleSession(session)}
               />
               <Collapse in={!!expandedSessions[session]} timeout="auto" unmountOnExit>
-                <Box sx={{ ml: 3 }}>
+                <Box sx={{ ml: { xs: 1, md: 3 } }}>
                   {levelKeys.map((level) => {
                     const semesters = levels[level];
                     const semesterKeys = Object.keys(semesters).sort((a, b) => Number(a) - Number(b));
@@ -577,7 +669,7 @@ const ApprovalPortal = () => {
                             onClick={() => toggleLevel(session, level)}
                           />
                           <Collapse in={!!expandedLevels[levelKey]} timeout="auto" unmountOnExit>
-                            <Box sx={{ ml: 3 }}>
+                            <Box sx={{ ml: { xs: 1, md: 3 } }}>
                               {semesterKeys.map((semester) => {
                                 const departments = semesters[semester];
                                 const departmentKeys = Object.keys(departments).sort((a, b) => String(a).localeCompare(String(b)));
@@ -593,7 +685,7 @@ const ApprovalPortal = () => {
                                         onClick={() => toggleSemester(session, level, semester)}
                                       />
                                       <Collapse in={!!expandedSemesters[semesterKey]} timeout="auto" unmountOnExit>
-                                        <Box sx={{ ml: 3, mb: 1 }}>
+                                        <Box sx={{ ml: { xs: 1, md: 3 }, mb: 1 }}>
                                           {departmentKeys.map((department) => {
                                             const items = departments[department];
                                             const departmentKey = keyDepartment(session, level, semester, department);
@@ -608,10 +700,16 @@ const ApprovalPortal = () => {
                                                     onClick={() => toggleDepartment(session, level, semester, department)}
                                                   />
                                                   <Collapse in={!!expandedDepartments[departmentKey]} timeout="auto" unmountOnExit>
-                                                    <Box sx={{ p: 2 }}>
-                                                      <TableContainer component={Paper} variant="outlined">
-                                                        {renderDepartmentTable(items, departmentKey)}
-                                                      </TableContainer>
+                                                    <Box sx={{ p: { xs: 1.5, md: 2 } }}>
+                                                      {isTabletDown ? (
+                                                        <Box>
+                                                          {renderDepartmentTable(items, departmentKey)}
+                                                        </Box>
+                                                      ) : (
+                                                        <TableContainer component={Paper} variant="outlined">
+                                                          {renderDepartmentTable(items, departmentKey)}
+                                                        </TableContainer>
+                                                      )}
                                                     </Box>
                                                   </Collapse>
                                                 </Card>
@@ -666,79 +764,65 @@ const ApprovalPortal = () => {
         </Tabs>
       </Paper>
 
-      <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
+      <Paper elevation={2} sx={{ p: { xs: 2, md: 3 }, mb: 3 }}>
         <Stack spacing={2}>
-          <Typography variant="subtitle1" fontWeight={600}>
-            {officer.label} Identity
-          </Typography>
+          <Stack
+            direction={{ xs: 'column', sm: 'row' }}
+            spacing={1.5}
+            alignItems={{ xs: 'flex-start', sm: 'center' }}
+            justifyContent="space-between"
+          >
+            <Box>
+              <Typography variant="subtitle1" fontWeight={600}>
+                {officer.label} Identity
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                These details accompany your approval trail.
+              </Typography>
+            </Box>
+            <Button
+              component={RouterLink}
+              to="/profile"
+              variant="outlined"
+              size="small"
+            >
+              Update Profile
+            </Button>
+          </Stack>
+
           <Grid container spacing={2}>
-            <Grid item xs={12} sm={2}>
-              <TextField
-                select
-                label="Title"
-                value={officerDetails[officerKey]?.title || ''}
-                onChange={(event) => updateOfficerProfile('title', event.target.value)}
-                required
-                fullWidth
-              >
-                {TITLE_OPTIONS.map((option) => (
-                  <MenuItem key={option} value={option}>
-                    {option}
-                  </MenuItem>
-                ))}
-              </TextField>
+            <Grid item xs={12} sm={6} md={4}>
+              <Typography variant="caption" color="text.secondary">
+                Name
+              </Typography>
+              <Typography variant="body1" fontWeight={600}>
+                {buildOfficerDisplayName(activeOfficerProfile) || 'Not set'}
+              </Typography>
             </Grid>
-            <Grid item xs={12} sm={3}>
-              <TextField
-                label="Surname"
-                value={officerDetails[officerKey]?.surname || ''}
-                onChange={(event) => updateOfficerProfile('surname', event.target.value)}
-                required
-                fullWidth
-              />
+            <Grid item xs={12} sm={6} md={4}>
+              <Typography variant="caption" color="text.secondary">
+                Department
+              </Typography>
+              <Typography variant="body1">
+                {activeOfficerProfile.department || 'Not provided'}
+              </Typography>
             </Grid>
-            <Grid item xs={12} sm={3}>
-              <TextField
-                label="Firstname"
-                value={officerDetails[officerKey]?.firstname || ''}
-                onChange={(event) => updateOfficerProfile('firstname', event.target.value)}
-                required
-                fullWidth
-              />
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <TextField
-                label="Middlename"
-                value={officerDetails[officerKey]?.middlename || ''}
-                onChange={(event) => updateOfficerProfile('middlename', event.target.value)}
-                fullWidth
-                placeholder="Optional"
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                label="Department"
-                value={officerDetails[officerKey]?.department || ''}
-                onChange={(event) => updateOfficerProfile('department', event.target.value)}
-                required
-                fullWidth
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                label="College"
-                value={officerDetails[officerKey]?.college || ''}
-                onChange={(event) => updateOfficerProfile('college', event.target.value)}
-                required
-                fullWidth
-              />
+            <Grid item xs={12} sm={6} md={4}>
+              <Typography variant="caption" color="text.secondary">
+                College
+              </Typography>
+              <Typography variant="body1">
+                {activeOfficerProfile.college || 'Not provided'}
+              </Typography>
             </Grid>
           </Grid>
+
           {!officerProfileComplete && (
             <Alert severity="warning" variant="outlined">
-              Complete all required identity fields to enable approvals.
+              Complete your profile details (name, department, college) before approving records.
             </Alert>
           )}
+
           <Stack
             direction={{ xs: 'column', md: 'row' }}
             spacing={2}
@@ -746,10 +830,19 @@ const ApprovalPortal = () => {
             justifyContent="space-between"
           >
             <Typography variant="body2" color="text.secondary">
-              These details accompany your approval and appear on the approval trail.
+              Pending items for this role.
             </Typography>
-            <Chip label={`${pending.length} pending`} color="primary" variant="outlined" />
+            <Chip
+              label={isTruncated ? `${pending.length}/${totalPending} pending` : `${pending.length} pending`}
+              color="primary"
+              variant="outlined"
+            />
           </Stack>
+          {isTruncated && (
+            <Typography variant="caption" color="text.secondary">
+              Showing the first {pending.length} records. Use filters to narrow the list.
+            </Typography>
+          )}
         </Stack>
       </Paper>
 

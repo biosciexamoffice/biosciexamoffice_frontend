@@ -499,6 +499,28 @@ function ResultList({ courses, isLoading, isError, onEdit, readOnly = false }) {
       return String(a).localeCompare(String(b));
     });
 
+    if (courses.length === 0) {
+      return (
+        <Box sx={{ textAlign: 'center', py: 6, }}>
+          <Card variant="outlined" sx={{
+            maxWidth: 400,
+            mx: 'auto',
+            p: 3,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 1,
+          }}>
+            <MenuBookIcon sx={{ fontSize: 48, color: 'text.disabled' }} />
+            <Typography variant="h6" fontWeight={600}>Results Not Uploaded</Typography>
+            <Typography color="text.secondary">
+              Results for this session have not been uploaded yet.
+            </Typography>
+          </Card>
+        </Box>
+      );
+    }
+
     return sessionKeys.map((session) => {
       const departments = groupedBySession[session];
       const deptKeys = Object.keys(departments).sort((a, b) => a.localeCompare(b));
@@ -514,7 +536,7 @@ function ResultList({ courses, isLoading, isError, onEdit, readOnly = false }) {
               onClick={() => toggleSession(session)}
             />
             <Collapse in={!!expandedSessions[session]} timeout="auto" unmountOnExit>
-              <Box sx={{ ml: 3 }}>
+        <Box sx={{ ml: { xs: 1, md: 3 } }}>
                 {deptKeys.map((dept) => {
                   const levels = departments[dept];
                   const levelKeys = Object.keys(levels).sort((a, b) => Number(a) - Number(b));
@@ -531,7 +553,7 @@ function ResultList({ courses, isLoading, isError, onEdit, readOnly = false }) {
                           onClick={() => toggleDepartment(session, dept)}
                         />
                         <Collapse in={!!expandedDepartments[deptK]} timeout="auto" unmountOnExit>
-                          <Box sx={{ ml: 3 }}>
+              <Box sx={{ ml: { xs: 1, md: 3 } }}>
                             {levelKeys.map((level) => {
                               const semesters = levels[level];
                               const semKeys = Object.keys(semesters).sort((a, b) => Number(a) - Number(b));
@@ -548,7 +570,7 @@ function ResultList({ courses, isLoading, isError, onEdit, readOnly = false }) {
                                       onClick={() => toggleLevel(session, dept, level)}
                                     />
                                     <Collapse in={!!expandedLevels[levelK]} timeout="auto" unmountOnExit>
-                                      <Box sx={{ ml: 3 }}>
+                  <Box sx={{ ml: { xs: 1, md: 3 } }}>
                                         {semKeys.map((sem) => {
                                           const courseList = semesters[sem];
                                           const semK = keySem(session, dept, level, sem);
@@ -657,9 +679,9 @@ function ResultList({ courses, isLoading, isError, onEdit, readOnly = false }) {
       ) : (
         <Box
           sx={{
-            maxWidth: 1400,
+            maxWidth: { xs: '100%', xl: 1400 },
             mx: 'auto',
-            p: 2,
+            p: { xs: 1, md: 2 },
             backgroundColor: theme.palette.background.paper,
             borderRadius: 2,
             boxShadow: theme.shadows[1],

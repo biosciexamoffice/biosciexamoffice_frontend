@@ -60,6 +60,7 @@ const ApprovedCourses = ({
   colleges = [],
   programmes = [],
   isLoadingInstitutions = false,
+  institutionError = null,
 }) => {
   const [openDialog, setOpenDialog] = useState(false);
   const [editMode, setEditMode] = useState(false);
@@ -113,6 +114,7 @@ const ApprovedCourses = ({
 
   const filteredApprovals = approvedCourses;
   const institutionsUnavailable = !colleges.length || !programmes.length;
+  const institutionGuardActive = Boolean(institutionError) || institutionsUnavailable;
   const defaultInstitution = useMemo(() => {
     if (!colleges.length) {
       return { collegeId: "", departmentId: "", programmeId: "" };
@@ -708,10 +710,10 @@ const ApprovedCourses = ({
         Approved Courses For Session and Semester
       </Typography>
 
-      {!isLoadingInstitutions && institutionsUnavailable && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          No colleges or programmes are available. Configure institutional data before creating new
-          approvals.
+      {!isLoadingInstitutions && institutionGuardActive && (
+        <Alert severity={institutionError ? "error" : "warning"} sx={{ mb: 2 }}>
+          {institutionError ||
+            "No colleges or programmes are available. Configure institutional data before creating new approvals."}
         </Alert>
       )}
 
@@ -721,7 +723,7 @@ const ApprovedCourses = ({
           variant="contained"
           startIcon={<AddIcon />}
           onClick={() => handleOpenDialog()}
-          disabled={isLoadingInstitutions || institutionsUnavailable}
+          disabled={isLoadingInstitutions || institutionGuardActive}
         >
           Add New Approval
         </Button>
@@ -779,7 +781,7 @@ const ApprovedCourses = ({
                 value={formData.collegeId}
                 onChange={handleChange}
                 required
-                disabled={isLoadingInstitutions || institutionsUnavailable}
+                disabled={isLoadingInstitutions || institutionGuardActive}
               >
                 <MenuItem value="" disabled>
                   <em>Select College</em>
@@ -802,7 +804,7 @@ const ApprovedCourses = ({
                 required
                 disabled={
                   isLoadingInstitutions ||
-                  institutionsUnavailable ||
+                  institutionGuardActive ||
                   departmentOptions.length === 0
                 }
               >
@@ -827,7 +829,7 @@ const ApprovedCourses = ({
                 required
                 disabled={
                   isLoadingInstitutions ||
-                  institutionsUnavailable ||
+                  institutionGuardActive ||
                   programmeOptions.length === 0
                 }
               >

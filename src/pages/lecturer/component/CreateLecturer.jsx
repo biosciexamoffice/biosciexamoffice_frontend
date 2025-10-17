@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Box,
   TextField,
@@ -19,6 +19,7 @@ import {
   Divider,
 } from "@mui/material";
 import { HelpOutline as HelpIcon, PersonAdd as PersonAddIcon } from "@mui/icons-material";
+import { useGetCollegesQuery, useGetDepartmentsQuery } from "../../../store/api/institutionApi";
 
 function CreateLecturer({ onCreate, isLoading, error }) {
   const theme = useTheme();
@@ -29,6 +30,7 @@ function CreateLecturer({ onCreate, isLoading, error }) {
     middlename: "",
     pfNo:'',
     rank: '',
+    college: '',
     department: ''
 
   });
@@ -38,14 +40,36 @@ function CreateLecturer({ onCreate, isLoading, error }) {
     firstname: false,
     middlename: false,
     rank: false,
+    college: false,
     department: false
   });
 
+  const { data: collegesData, isLoading: collegesLoading } = useGetCollegesQuery();
+  const { data: departmentsData, isLoading: departmentsLoading } = useGetDepartmentsQuery(inputs.college, { skip: !inputs.college });
+
+  const [colleges, setColleges] = useState([]);
+  const [departments, setDepartments] = useState([]);
+
+  useEffect(() => {
+    if (collegesData) {
+      setColleges(collegesData.colleges);
+    }
+  }, [collegesData]);
+
+  useEffect(() => {
+    if (departmentsData) {
+      setDepartments(departmentsData.departments);
+    }
+  }, [departmentsData]);
+
   const handleInputs = (e) => {
     const { name, value } = e.target;
-    setInputs({
-      ...inputs,
-      [name]: value,
+    setInputs((prev) => {
+      const newInputs = { ...prev, [name]: value };
+      if (name === 'college') {
+        newInputs.department = ''; // Reset department when college changes
+      }
+      return newInputs;
     });
     // Mark field as touched when changed
     if (name in touched) {
@@ -69,8 +93,8 @@ function CreateLecturer({ onCreate, isLoading, error }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     // Trigger touched state for all fields on submit to show errors
-    if (!inputs.title || !inputs.surname || !inputs.firstname || !inputs.pfNo || !inputs.rank || !inputs.department) {
-      setTouched({ title: true, surname: true, firstname: true, middlename: true, pfNo: true, rank: true, department: true });
+    if (!inputs.title || !inputs.surname || !inputs.firstname || !inputs.pfNo || !inputs.rank || !inputs.college || !inputs.department) {
+      setTouched({ title: true, surname: true, firstname: true, middlename: true, pfNo: true, rank: true, college: true, department: true });
       return;
     }
 
@@ -83,11 +107,12 @@ function CreateLecturer({ onCreate, isLoading, error }) {
         surname: "",
         firstname: "",
         middlename: '',
-        pfNo:'',
+        pfNo: '',
         rank: '',
+        college: '',
         department: '',
       });
-      setTouched({ title: false, surname: false, firstname: false, middlename: false, pfNo: false, rank: false, department: false});
+      setTouched({ title: false, surname: false, firstname: false, middlename: false, pfNo: false, rank: false, college: false, department: false});
     } catch (err) {
       // Error is displayed via the `error` prop from the parent.
       // We just prevent the form from being reset on failure.
@@ -101,6 +126,7 @@ function CreateLecturer({ onCreate, isLoading, error }) {
   // Middlename is optional
   const isPfNoValid = inputs.pfNo.trim() !== "" || !touched.pfNo;
   const isRankValid = inputs.rank.trim() !== "" || !touched.rank;
+  const isCollegeValid = inputs.college.trim() !== "" || !touched.college;
   const isDepartmentValid = inputs.department.trim() !== "" || !touched.department;
   
 
@@ -279,27 +305,47 @@ function CreateLecturer({ onCreate, isLoading, error }) {
           </Grid>
 
           <Grid item xs={12} sm={4}>
-            <TextField
-              label="Department"
-              variant="outlined"
-              name="department"
-              value={inputs.department}
-              onChange={handleInputs}
-              onBlur={handleBlur}
-              required
-              fullWidth
-              error={!isDepartmentValid}
-              helperText={!isDepartmentValid && "Department is required"}
-              InputProps={{
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <Tooltip title="e.g., Computer Science">
-                      <HelpIcon color="action" fontSize="small" />
-                    </Tooltip>
-                  </InputAdornment>
-                ),
-              }}
-            />
+            <FormControl fullWidth>
+              <InputLabel id="college-select-label">College</InputLabel>
+              <Select
+                labelId="college-select-label"
+                name="college"
+                value={inputs.college}
+                label="College"
+                onChange={handleInputs}
+                onBlur={handleBlur}
+                error={!isCollegeValid}
+              >
+                {colleges.map((college) => (
+                  <MenuItem key={college.id} value={college.id}>
+                    {college.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+
+          <Grid item xs={12} sm={4}>
+            <FormControl fullWidth>
+              <InputLabel id="department-select-label">Department</InputLabel>
+              <Select
+                labelId="department-select-label"
+                name="department"
+                value={inputs.department}
+                label="Department"
+                onChange={handleInputs}
+                onBlur={handleBlur}
+                error={!isDepartmentValid}
+                disabled={!inputs.college || departmentsLoading}
+              >
+                {departments
+                  .map((department) => (
+                    <MenuItem key={department.id} value={department.id}>
+                      {department.name}
+                    </MenuItem>
+                  ))}
+              </Select>
+            </FormControl>
           </Grid>
         </Grid>
 

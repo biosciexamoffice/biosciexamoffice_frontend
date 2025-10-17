@@ -40,6 +40,7 @@ function CreateCourse({
   colleges = [],
   programmes = [],
   isLoadingInstitutions = false,
+  institutionError = null,
 }) {
   const theme = useTheme();
   const defaultInstitution = useMemo(() => {
@@ -274,12 +275,13 @@ function CreateCourse({
   const isProgrammeValid = inputs.programmeId || !touched.programmeId;
 
   const institutionsUnavailable = !colleges.length || !programmes.length;
+  const institutionGuardActive = Boolean(institutionError) || institutionsUnavailable;
 
-  if (!isLoadingInstitutions && institutionsUnavailable) {
+  if (!isLoadingInstitutions && institutionGuardActive) {
     return (
-      <Alert severity="warning" sx={{ mt: 4 }}>
-        No colleges or programmes are available. Please create institutional data before adding
-        courses.
+      <Alert severity={institutionError ? "error" : "warning"} sx={{ mt: 4 }}>
+        {institutionError ||
+          "No colleges or programmes are available. Please create institutional data before adding courses."}
       </Alert>
     );
   }
@@ -450,7 +452,7 @@ function CreateCourse({
               onBlur={handleBlur}
               required
               fullWidth
-              disabled={isLoadingInstitutions || institutionsUnavailable}
+              disabled={isLoadingInstitutions || institutionGuardActive}
               error={!isCollegeValid}
               helperText={
                 isLoadingInstitutions
@@ -480,7 +482,7 @@ function CreateCourse({
               fullWidth
               disabled={
                 isLoadingInstitutions ||
-                institutionsUnavailable ||
+                institutionGuardActive ||
                 departmentOptions.length === 0
               }
               error={!isDepartmentValid}
@@ -514,7 +516,7 @@ function CreateCourse({
               fullWidth
               disabled={
                 isLoadingInstitutions ||
-                institutionsUnavailable ||
+                institutionGuardActive ||
                 programmeOptions.length === 0
               }
               error={!isProgrammeValid}
@@ -551,7 +553,7 @@ function CreateCourse({
           variant="contained"
           type="submit"
           size="large"
-          disabled={isLoading || isLoadingInstitutions || institutionsUnavailable}
+          disabled={isLoading || isLoadingInstitutions || institutionGuardActive}
         >
           {isLoading ? "Creating..." : "Create Course"}
         </Button>

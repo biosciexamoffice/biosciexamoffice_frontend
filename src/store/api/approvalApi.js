@@ -7,16 +7,17 @@ export const approvalApi = createApi({
   tagTypes: ['Approval'],
   endpoints: (builder) => ({
     getPendingApprovals: builder.query({
-      query: ({ role, session, semester, level }) => ({
+      query: ({ role, session, semester, level, limit }) => ({
         url: '/approvals/pending',
         params: {
           role,
           session,
           semester,
           level,
+          limit,
         },
       }),
-      providesTags: (result, error, arg) => [{ type: 'Approval', role: arg.role }],
+      providesTags: (result, error, arg) => [{ type: 'Approval', role: `${arg.role}-${arg.limit}` }],
     }),
   }),
 });

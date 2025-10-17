@@ -377,30 +377,30 @@ const SessionDetails = ({
             <Grid item xs={12} md={4}>
               <Typography variant="subtitle2">Dean of College</Typography>
               <Typography variant="body1">
-                {session.dean?.name} ({session.dean?.pfNo})
+                {session.principalOfficers?.dean?.name} ({session.principalOfficers?.dean?.pfNo})
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                {session.dean?.department}
+                {session.principalOfficers?.dean?.department?.name}
               </Typography>
             </Grid>
 
             <Grid item xs={12} md={4}>
               <Typography variant="subtitle2">Head of Department</Typography>
               <Typography variant="body1">
-                {session.hod?.name} ({session.hod?.pfNo})
+                {session.principalOfficers?.hod?.name} ({session.principalOfficers?.hod?.pfNo})
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                {session.hod?.department}
+                {session.principalOfficers?.hod?.department?.name}
               </Typography>
             </Grid>
 
             <Grid item xs={12} md={4}>
               <Typography variant="subtitle2">Exam Officer</Typography>
               <Typography variant="body1">
-                {session.eo?.name} ({session.eo?.pfNo})
+                {session.principalOfficers?.examOfficer?.name} ({session.principalOfficers?.examOfficer?.pfNo})
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                {session.eo?.department}
+                {session.principalOfficers?.examOfficer?.department?.name}
               </Typography>
             </Grid>
           </Grid>

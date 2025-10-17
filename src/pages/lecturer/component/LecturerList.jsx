@@ -96,6 +96,7 @@ function LecturerList({
               <TableCell sx={{ fontWeight: 700 }}>Name</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>PF Number</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Rank</TableCell>
+              <TableCell sx={{ fontWeight: 700 }}>College</TableCell>
               <TableCell sx={{ fontWeight: 700 }}>Department</TableCell>
             </TableRow>
           </TableHead>
@@ -125,7 +126,8 @@ function LecturerList({
                   />
                 </TableCell>
                 <TableCell>{lecturer.rank}</TableCell>
-                <TableCell>{lecturer.department}</TableCell>
+                <TableCell>{lecturer.college?.name}</TableCell>
+                <TableCell>{lecturer.department?.name}</TableCell>
               </TableRow>
             ))}
           </TableBody>

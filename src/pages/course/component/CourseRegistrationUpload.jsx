@@ -133,6 +133,7 @@ export default function CourseRegistrationUpload({
   colleges = [],
   programmes = [],
   isLoadingInstitutions = false,
+  institutionError = null,
 }) {
   const [session, setSession] = useState("");
   const [semester, setSemester] = useState("");
@@ -203,6 +204,7 @@ export default function CourseRegistrationUpload({
   );
 
   const institutionsUnavailable = !colleges.length || !programmes.length;
+  const institutionGuardActive = Boolean(institutionError) || institutionsUnavailable;
 
   const summary = data?.summary ?? null;
   const pdfReport = useMemo(
@@ -224,9 +226,9 @@ export default function CourseRegistrationUpload({
           institution.programmeId &&
           !isLoading &&
           !isLoadingInstitutions &&
-          !institutionsUnavailable
+          !institutionGuardActive
       ),
-    [session, semester, curriculumType, files, institution, isLoading, isLoadingInstitutions, institutionsUnavailable]
+    [session, semester, curriculumType, files, institution, isLoading, isLoadingInstitutions, institutionGuardActive]
   );
 
   const onPickFiles = (event) => {
@@ -348,10 +350,10 @@ export default function CourseRegistrationUpload({
           selected programme.
         </Alert>
 
-        {(!isLoadingInstitutions && (!colleges.length || !programmes.length)) && (
-          <Alert severity="warning" sx={{ mb: 3 }}>
-            No colleges or programmes are available. Configure institutional data before uploading
-            registrations.
+        {(!isLoadingInstitutions && institutionGuardActive) && (
+          <Alert severity={institutionError ? "error" : "warning"} sx={{ mb: 3 }}>
+            {institutionError ||
+              "No colleges or programmes are available. Configure institutional data before uploading registrations."}
           </Alert>
         )}
 
@@ -366,7 +368,7 @@ export default function CourseRegistrationUpload({
                 onChange={handleInstitutionChange}
                 fullWidth
                 required
-                disabled={isLoadingInstitutions || institutionsUnavailable}
+                disabled={isLoadingInstitutions || institutionGuardActive}
               >
                 <MenuItem value="" disabled>
                   <em>Select College</em>
@@ -389,7 +391,7 @@ export default function CourseRegistrationUpload({
                 required
                 disabled={
                   isLoadingInstitutions ||
-                  institutionsUnavailable ||
+                  institutionGuardActive ||
                   departmentOptions.length === 0
                 }
               >
@@ -414,7 +416,7 @@ export default function CourseRegistrationUpload({
                 required
                 disabled={
                   isLoadingInstitutions ||
-                  institutionsUnavailable ||
+                  institutionGuardActive ||
                   programmeOptions.length === 0
                 }
               >
@@ -517,7 +519,7 @@ export default function CourseRegistrationUpload({
                   borderWidth: 2,
                 },
               }}
-              disabled={isLoadingInstitutions || institutionsUnavailable}
+              disabled={isLoadingInstitutions || institutionGuardActive}
             >
               {files.length
                 ? `${files.length} file${files.length === 1 ? "" : "s"} selected`

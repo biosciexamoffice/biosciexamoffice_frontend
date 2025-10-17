@@ -1,5 +1,9 @@
 import { useState, useEffect } from "react";
-import { useUpdateLecturerMutation } from "../../../store/index";
+import {
+  useUpdateLecturerMutation,
+  useGetCollegesQuery,
+  useGetDepartmentsQuery,
+} from "../../../store/index";
 import {
   Dialog,
   DialogActions,
@@ -21,6 +25,7 @@ import { Close as CloseIcon } from "@mui/icons-material";
 
 function EditLecturer({ lecturer, open, onClose }) {
   const [updateLecturer, { isLoading, isError, error }] = useUpdateLecturerMutation();
+  const { data: collegesData } = useGetCollegesQuery();
   const [inputs, setInputs] = useState({
     title: "",
     surname: "",
@@ -28,8 +33,11 @@ function EditLecturer({ lecturer, open, onClose }) {
     middlename: "",
     pfNo: "",
     rank: "",
+    college: "",
     department: "",
   });
+
+  const { data: departmentsData } = useGetDepartmentsQuery(inputs.college, { skip: !inputs.college });
 
   useEffect(() => {
     if (lecturer) {
@@ -40,14 +48,21 @@ function EditLecturer({ lecturer, open, onClose }) {
         middlename: lecturer.middlename || "",
         pfNo: lecturer.pfNo || "",
         rank: lecturer.rank || "",
-        department: lecturer.department || "",
+        college: lecturer.college?._id || "",
+        department: lecturer.department?._id || "",
       });
     }
   }, [lecturer, open]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setInputs({ ...inputs, [name]: value });
+    setInputs((prev) => {
+      const newInputs = { ...prev, [name]: value };
+      if (name === 'college') {
+        newInputs.department = ''; // Reset department when college changes
+      }
+      return newInputs;
+    });
   };
 
   const handleLecturerUpdate = async (e) => {
@@ -111,8 +126,40 @@ function EditLecturer({ lecturer, open, onClose }) {
             <Grid item xs={12} sm={4}>
               <TextField label="Rank" name="rank" value={inputs.rank} onChange={handleInputChange} fullWidth required />
             </Grid>
-            <Grid item xs={12} sm={4}>
-              <TextField label="Department" name="department" value={inputs.department} onChange={handleInputChange} fullWidth required />
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth required>
+                <InputLabel>College</InputLabel>
+                <Select
+                  name="college"
+                  value={inputs.college}
+                  label="College"
+                  onChange={handleInputChange}
+                >
+                  {collegesData?.colleges?.map((college) => (
+                    <MenuItem key={college.id} value={college.id}>
+                      {college.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <FormControl fullWidth required>
+                <InputLabel>Department</InputLabel>
+                <Select
+                  name="department"
+                  value={inputs.department}
+                  label="Department"
+                  onChange={handleInputChange}
+                  disabled={!inputs.college}
+                >
+                  {departmentsData?.departments?.map((department) => (
+                    <MenuItem key={department.id} value={department.id}>
+                      {department.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
             </Grid>
           </Grid>
         </Box>

@@ -1,7 +1,14 @@
 export const isDepartmentScopedRole = (roles = []) =>
-  roles.some((role) => ['EXAM_OFFICER', 'HOD'].includes(role));
+  roles.some((role) => ["EXAM_OFFICER", "HOD"].includes(role));
 
-export const filterInstitutionsForUser = (colleges = [], programmes = [], user = null, roles = []) => {
+export const filterInstitutionsForUser = (
+  colleges = [],
+  programmes = [],
+  user = null,
+  roles = []
+) => {
+  // All checks are disabled, returning all institutions
+  // return { colleges, programmes }; // This was disabled for debugging
   if (!isDepartmentScopedRole(roles) || !user?.departmentId) {
     return { colleges, programmes };
   }
