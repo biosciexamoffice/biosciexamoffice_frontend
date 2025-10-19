@@ -22,6 +22,21 @@ export const sessionApi = createApi({
       }),
       invalidatesTags: ['Session']
     }),
+    updateSession: builder.mutation({
+      query: ({ id, ...payload }) => ({
+        url: `/sessions/${id}`,
+        method: 'PUT',
+        body: payload,
+      }),
+      invalidatesTags: ['Session']
+    }),
+    deleteSession: builder.mutation({
+      query: ({ id }) => ({
+        url: `/sessions/${id}`,
+        method: 'DELETE',
+      }),
+      invalidatesTags: ['Session']
+    }),
     getSessions: builder.query({
       query: () => '/sessions',
       providesTags: ['Session'],
@@ -41,6 +56,8 @@ export const sessionApi = createApi({
 export const { 
   useCreateSessionMutation,
   useCloseSessionMutation,
+  useUpdateSessionMutation,
+  useDeleteSessionMutation,
   useGetSessionsQuery,
   useGetSessionByIdQuery,
   useGetCurrentSessionQuery

@@ -271,6 +271,7 @@ export default function UamPortal() {
                   sx={{ minWidth: 300 }}
                 >
                   <MenuItem value="CORE">CORE</MenuItem>
+                  <MenuItem value="ELECTIVE">ELECTIVE</MenuItem>
                   <MenuItem value="CARRYOVER">CARRYOVER</MenuItem>
                 </TextField>
               </Grid>

@@ -7,10 +7,14 @@ import {
   Paper,
   Grid,
   Alert,
+  AlertTitle,
   useTheme,
   Fade,
   Divider,
   MenuItem,
+  List,
+  ListItem,
+  ListItemText,
 } from "@mui/material";
 import { PersonAdd as PersonAddIcon } from "@mui/icons-material";
 import { idsMatch, normalizeId } from "../../../utills/normalizeId";
@@ -20,7 +24,7 @@ const LEVEL_OPTIONS = ["100", "200", "300", "400", "500"];
 function CreateStudent({
   onCreate,
   isLoading,
-  error,
+  error: errorInfo,
   colleges = [],
   programmes = [],
   isLoadingInstitutions = false,
@@ -45,6 +49,32 @@ function CreateStudent({
     departmentId: false,
     programmeId: false,
   });
+
+  const normalizedError =
+    typeof errorInfo === "string"
+      ? { message: errorInfo }
+      : errorInfo && typeof errorInfo === "object"
+      ? errorInfo
+      : null;
+
+  const generalErrorMessage =
+    normalizedError?.message || normalizedError?.error || null;
+
+  const additionalDetail =
+    normalizedError?.details &&
+    normalizedError.details !== generalErrorMessage
+      ? normalizedError.details
+      : null;
+
+  const fieldErrors = Array.isArray(normalizedError?.fieldErrors)
+    ? normalizedError.fieldErrors.filter(
+        (fieldError) => fieldError && (fieldError.message || fieldError.detail)
+      )
+    : [];
+
+  const hasErrorFeedback = Boolean(
+    generalErrorMessage || additionalDetail || fieldErrors.length
+  );
 
   const departmentOptions = useMemo(() => {
     const selectedCollege = colleges.find((college) => college.id === inputs.collegeId);
@@ -260,10 +290,39 @@ function CreateStudent({
 
         <Divider sx={{ mb: 2 }} />
 
-        {error && (
-          <Fade in={Boolean(error)}>
+        {normalizedError && (
+          <Fade in={hasErrorFeedback}>
             <Alert severity="error" sx={{ mb: 3 }}>
-              {error}
+              <AlertTitle>Unable to create student</AlertTitle>
+              <Typography variant="body2">
+                {generalErrorMessage ||
+                  "The student record could not be created. Fix the highlighted issues and try again."}
+              </Typography>
+              {additionalDetail && (
+                <Typography variant="body2" sx={{ mt: 1 }}>
+                  {additionalDetail}
+                </Typography>
+              )}
+              {fieldErrors.length > 0 && (
+                <List dense sx={{ mt: 1, pl: 2 }}>
+                  {fieldErrors.map((fieldError, index) => {
+                    const label = fieldError.field
+                      ? `${fieldError.field}: `
+                      : "";
+                    return (
+                      <ListItem
+                        key={`${fieldError.field || "error"}-${index}`}
+                        disablePadding
+                      >
+                        <ListItemText
+                          primary={`${label}${fieldError.message || fieldError.detail || "Invalid value."}`}
+                          primaryTypographyProps={{ variant: "body2" }}
+                        />
+                      </ListItem>
+                    );
+                  })}
+                </List>
+              )}
             </Alert>
           </Fade>
         )}

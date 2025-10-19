@@ -52,7 +52,10 @@ const SessionDetails = ({
   onBack,
   onCreateAnother,
   onCloseSession,
+  onEditSession,
+  onDeleteSession,
   isClosing = false,
+  isDeleting = false,
 }) => {
   const [openDetails, setOpenDetails] = useState(true);
   const [openStats, setOpenStats] = useState(true);
@@ -71,6 +74,10 @@ const SessionDetails = ({
   }, [session]);
 
   const closeSummary = session?.closeSummary || null;
+  const derivedStatus = session?.status || (session?.isCurrent ? 'active' : 'completed');
+  const statusValue = String(derivedStatus).toLowerCase();
+  const detailIsCompleted = statusValue === 'completed';
+  const detailIsCurrent = Boolean(session?.isCurrent);
   const blockers = (closeSummary?.blockingReasons || []).filter(Boolean);
   const canClose = Boolean(closeSummary?.canClose);
   const metricsSummary =
@@ -168,29 +175,46 @@ const SessionDetails = ({
             sx={{ fontWeight: 600 }}
           />
         )}
-        {session.status !== "completed" && (
-          <Tooltip
-            arrow
-            placement="top"
-            title={
-              canClose
-                ? "Close the session to promote students and update graduation statuses."
-                : primaryBlocker
-            }
+        <Stack direction="row" spacing={1} flexWrap="wrap">
+          <Button
+            variant="outlined"
+            onClick={() => onEditSession?.(session)}
+            disabled={detailIsCompleted || !onEditSession}
           >
-            <span>
-              <Button
-                variant="contained"
-                color="error"
-                onClick={() => setConfirmCloseOpen(true)}
-                startIcon={<CheckCircle />}
-                disabled={disableCloseButton}
-              >
-                {isClosing ? "Closing session..." : "End Session"}
-              </Button>
-            </span>
-          </Tooltip>
-        )}
+            Edit
+          </Button>
+          <Button
+            variant="outlined"
+            color="error"
+            onClick={() => onDeleteSession?.(session)}
+            disabled={isDeleting || detailIsCompleted || detailIsCurrent || !onDeleteSession}
+          >
+            Delete
+          </Button>
+          {session.status !== "completed" && (
+            <Tooltip
+              arrow
+              placement="top"
+              title={
+                canClose
+                  ? "Close the session to promote students and update graduation statuses."
+                  : primaryBlocker
+              }
+            >
+              <span>
+                <Button
+                  variant="contained"
+                  color="error"
+                  onClick={() => setConfirmCloseOpen(true)}
+                  startIcon={<CheckCircle />}
+                  disabled={disableCloseButton}
+                >
+                  {isClosing ? "Closing session..." : "End Session"}
+                </Button>
+              </span>
+            </Tooltip>
+          )}
+        </Stack>
       </Stack>
 
       {session.status !== "completed" && (

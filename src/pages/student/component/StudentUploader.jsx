@@ -1,16 +1,20 @@
-import { useState, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useUploadStudentsMutation } from "../../../store/index";
 import {
+  Alert,
+  AlertTitle,
   Box,
   Button,
-  Typography,
-  Paper,
-  Alert,
+  Chip,
   CircularProgress,
-  Stack,
+  Collapse,
+  Divider,
   List,
   ListItem,
   ListItemText,
+  MenuItem,
+  Paper,
+  Stack,
   Table,
   TableBody,
   TableCell,
@@ -18,56 +22,252 @@ import {
   TableHead,
   TableRow,
   TextField,
-  MenuItem
+  Typography,
+  useTheme,
 } from "@mui/material";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import DescriptionIcon from "@mui/icons-material/Description";
+import { idsMatch, normalizeId } from "../../../utills/normalizeId";
 
-function StudentUploader() {
-  const [uploadStudents, { isLoading, isError, isSuccess, error, reset }] =
-    useUploadStudentsMutation();
-  const fileInputRef = useRef();
+function StudentUploader({ colleges = [], programmes = [], userDepartmentId = null }) {
+  const theme = useTheme();
+  const [uploadStudents, { isLoading, reset }] = useUploadStudentsMutation();
+  const fileInputRef = useRef(null);
   const [fileName, setFileName] = useState("");
+  const [level, setLevel] = useState("");
   const [uploadStats, setUploadStats] = useState(null);
-  const [level, setLevel] = useState("")
+  const [failureReport, setFailureReport] = useState(null);
+  const [showFailureDetails, setShowFailureDetails] = useState(true);
+  const [showSuccessDetails, setShowSuccessDetails] = useState(true);
+  const [selectedCollegeId, setSelectedCollegeId] = useState("");
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
+  const [selectedProgrammeId, setSelectedProgrammeId] = useState("");
+  const [selectedDegreeType, setSelectedDegreeType] = useState("");
 
+  const handleLevel = (event) => {
+    setLevel(event.target.value);
+  };
 
-  const handleLevel = (e) => {
-      setLevel(e.target.value)
-      console.log(level)
-  }
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    const file = fileInputRef.current?.files?.[0];
+    if (!file) {
+      return;
+    }
+    if (!selectedCollegeId || !selectedDepartmentId || !selectedProgrammeId) {
+      setFailureReport({
+        message:
+          "Select a college, department, and programme before uploading students.",
+        stats: null,
+        failed: [],
+      });
+      return;
+    }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setUploadStats(null); // Clear previous stats
-    const file = fileInputRef.current.files[0];
-    if (!file) return;
+    reset();
+    setUploadStats(null);
+    setFailureReport(null);
+    setShowFailureDetails(true);
+    setShowSuccessDetails(true);
 
     const formData = new FormData();
-    formData.append('level', level)
+    formData.append("level", level);
     formData.append("csvFile", file);
-
+    formData.append("useDefaultInstitution", "true");
+    formData.append("defaultCollegeId", selectedCollegeId);
+    formData.append("defaultDepartmentId", selectedDepartmentId);
+    formData.append("defaultProgrammeId", selectedProgrammeId);
+    if (selectedDegreeType) {
+      formData.append("defaultDegreeType", selectedDegreeType);
+    }
 
     try {
       const response = await uploadStudents(formData).unwrap();
-      if (response.stats) {
-        setUploadStats({
-          stats: response.stats,
-          failed: response.failed,
-        });
-      }
+      setUploadStats({
+        message: response.message,
+        stats: response.stats || null,
+        failed: response.failed || [],
+      });
     } catch (err) {
       console.error("Upload failed:", err);
+      const apiError = err?.data || {};
+      setFailureReport({
+        message:
+          apiError.message ||
+          "The upload could not be completed. Please review the issues below.",
+        stats: apiError.stats || null,
+        failed: apiError.failed || apiError.validationErrors || [],
+      });
     }
   };
 
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
+  const handleFileChange = (event) => {
+    const file = event.target.files?.[0];
     setFileName(file ? file.name : "");
-    setUploadStats(null); // Clear stats when file changes
-    if (isError || isSuccess) {
-      reset();
+    setUploadStats(null);
+    setFailureReport(null);
+    reset();
+  };
+
+  useEffect(() => {
+    if (!colleges.length) {
+      setSelectedCollegeId("");
+      setSelectedDepartmentId("");
+      return;
     }
+
+    setSelectedCollegeId((prev) => {
+      if (prev && colleges.some((college) => idsMatch(college.id, prev))) {
+        return prev;
+      }
+      if (userDepartmentId) {
+        const owningCollege = colleges.find((college) =>
+          (college.departments || []).some((dept) => idsMatch(dept.id, userDepartmentId))
+        );
+        if (owningCollege) {
+          return normalizeId(owningCollege.id);
+        }
+      }
+      return normalizeId(colleges[0].id);
+    });
+  }, [colleges, userDepartmentId]);
+
+  useEffect(() => {
+    if (!selectedCollegeId) {
+      setSelectedDepartmentId("");
+      return;
+    }
+    const college = colleges.find((item) => idsMatch(item.id, selectedCollegeId));
+    const departments = college?.departments || [];
+
+    const nextDepartmentId = (() => {
+      if (!departments.length) {
+        return "";
+      }
+      if (userDepartmentId) {
+        const match = departments.find((dept) => idsMatch(dept.id, userDepartmentId));
+        if (match) {
+          return normalizeId(match.id);
+        }
+      }
+      return normalizeId(departments[0].id);
+    })();
+
+    setSelectedDepartmentId((prev) =>
+      nextDepartmentId && idsMatch(prev, nextDepartmentId) ? prev : nextDepartmentId
+    );
+  }, [selectedCollegeId, colleges, userDepartmentId]);
+
+  const departmentOptions = useMemo(() => {
+    const college = colleges.find((item) => idsMatch(item.id, selectedCollegeId));
+    return college?.departments || [];
+  }, [colleges, selectedCollegeId]);
+
+  const programmeOptions = useMemo(() => {
+    if (!selectedDepartmentId) {
+      return [];
+    }
+    return programmes.filter(
+      (programme) =>
+        idsMatch(programme.departmentId, selectedDepartmentId) &&
+        (
+          !selectedCollegeId ||
+          !programme.collegeId ||
+          idsMatch(programme.collegeId, selectedCollegeId)
+        )
+    );
+  }, [programmes, selectedDepartmentId, selectedCollegeId]);
+
+  useEffect(() => {
+    if (!programmeOptions.length) {
+      setSelectedProgrammeId("");
+      return;
+    }
+
+    setSelectedProgrammeId((prev) => {
+      if (prev && programmeOptions.some((programme) => idsMatch(programme.id, prev))) {
+        return prev;
+      }
+      return normalizeId(programmeOptions[0].id);
+    });
+  }, [programmeOptions]);
+
+  const selectedProgramme = useMemo(
+    () => programmeOptions.find((programme) => idsMatch(programme.id, selectedProgrammeId)) || null,
+    [programmeOptions, selectedProgrammeId]
+  );
+
+  useEffect(() => {
+    setSelectedDegreeType(selectedProgramme?.degreeType || "");
+  }, [selectedProgramme]);
+
+  const selectedCollege = useMemo(
+    () => colleges.find((college) => idsMatch(college.id, selectedCollegeId)) || null,
+    [colleges, selectedCollegeId],
+  );
+
+  const selectedDepartment = useMemo(
+    () =>
+      departmentOptions.find((department) => idsMatch(department.id, selectedDepartmentId)) || null,
+    [departmentOptions, selectedDepartmentId],
+  );
+
+  const renderStatsChips = (stats) => {
+    if (!stats) return null;
+
+    return (
+      <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: "wrap" }}>
+        <Chip label={`Total: ${stats.total ?? 0}`} variant="outlined" />
+        <Chip label={`Succeeded: ${stats.success ?? 0}`} color="success" variant="outlined" />
+        <Chip label={`Failed: ${stats.failed ?? 0}`} color="error" variant="outlined" />
+      </Stack>
+    );
+  };
+
+  const renderFailedRecordsTable = (records = []) => {
+    if (!records.length) return null;
+
+    return (
+      <TableContainer component={Paper} sx={{ mt: 2 }}>
+        <Table size="small" aria-label="failed records table">
+          <TableHead>
+            <TableRow>
+              <TableCell>Row</TableCell>
+              <TableCell>Registration No.</TableCell>
+              <TableCell>Issue</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {records.map((record, index) => {
+              const key = `${record.regNo || "N/A"}-${record.line || index}`;
+              const rowDetails = record.rowData
+                ? Object.entries(record.rowData)
+                    .filter(([, value]) => value)
+                    .map(([field, value]) => `${field}: ${value}`)
+                    .join(" • ")
+                : null;
+
+              return (
+                <TableRow key={key} sx={{ "&:last-child td, &:last-child th": { border: 0 } }}>
+                  <TableCell>{record.line ?? "—"}</TableCell>
+                  <TableCell>{record.regNo || "N/A"}</TableCell>
+                  <TableCell>
+                    <Typography variant="body2" color="error.main">
+                      {record.error || "Unknown error"}
+                    </Typography>
+                    {rowDetails && (
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        {rowDetails}
+                      </Typography>
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    );
   };
 
   return (
@@ -85,17 +285,15 @@ function StudentUploader() {
           value={level}
           onChange={handleLevel}
           name="level"
-          sx={{
-            py:1
-          }}
-          >
-            <MenuItem value="100">100</MenuItem>
-            <MenuItem value="200">200</MenuItem>
-            <MenuItem value="300">300</MenuItem>
-            <MenuItem value="400">400</MenuItem>
-            <MenuItem value="500">500</MenuItem>
+          sx={{ py: 1 }}
+        >
+          <MenuItem value="100">100</MenuItem>
+          <MenuItem value="200">200</MenuItem>
+          <MenuItem value="300">300</MenuItem>
+          <MenuItem value="400">400</MenuItem>
+          <MenuItem value="500">500</MenuItem>
         </TextField>
-        
+
         <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
           Select a CSV file containing student profiles to upload.
         </Typography>
@@ -105,6 +303,92 @@ function StudentUploader() {
           <strong> college, department, programme, degreeType</strong>. Values must match existing
           institution records exactly.
         </Alert>
+
+        {!colleges.length && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            You do not have access to any colleges. Contact an administrator to configure your
+            institution scope before uploading students.
+          </Alert>
+        )}
+
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="h6" gutterBottom>
+            Institution Defaults
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            These selections will be applied to every student in the CSV. Adjust them if you need to
+            upload students for a different programme.
+          </Typography>
+          <Stack spacing={2}>
+            <TextField
+              select
+              label="College"
+              value={selectedCollegeId}
+              onChange={(event) => setSelectedCollegeId(event.target.value)}
+              disabled={!colleges.length}
+              helperText={
+                colleges.length
+                  ? undefined
+                  : "No colleges available for your account."
+              }
+              required
+            >
+              {colleges.map((college) => (
+                <MenuItem key={college.id} value={normalizeId(college.id)}>
+                  {college.name}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              label="Department"
+              value={selectedDepartmentId}
+              onChange={(event) => setSelectedDepartmentId(event.target.value)}
+              disabled={!departmentOptions.length}
+              helperText={
+                selectedCollegeId && !departmentOptions.length
+                  ? "No departments found for the selected college."
+                  : undefined
+              }
+              required
+            >
+              {departmentOptions.map((department) => (
+                <MenuItem key={department.id} value={normalizeId(department.id)}>
+                  {department.name}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              label="Programme"
+              value={selectedProgrammeId}
+              onChange={(event) => setSelectedProgrammeId(event.target.value)}
+              disabled={!programmeOptions.length}
+              helperText={
+                selectedDepartmentId && !programmeOptions.length
+                  ? "No programmes found for the selected department."
+                  : undefined
+              }
+              required
+            >
+              {programmeOptions.map((programme) => (
+                <MenuItem key={programme.id} value={normalizeId(programme.id)}>
+                  {programme.name}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              label="Degree Type"
+              value={selectedDegreeType}
+              InputProps={{ readOnly: true }}
+              helperText={
+                selectedProgramme
+                  ? "Derived from the selected programme."
+                  : "Select a programme to see the degree type."
+              }
+            />
+          </Stack>
+        </Box>
 
         <form onSubmit={handleSubmit}>
           <Stack spacing={3}>
@@ -146,7 +430,14 @@ function StudentUploader() {
               variant="contained"
               color="primary"
               size="large"
-              disabled={isLoading || !fileName}
+              disabled={
+                isLoading ||
+                !fileName ||
+                !level ||
+                !selectedCollegeId ||
+                !selectedDepartmentId ||
+                !selectedProgrammeId
+              }
               fullWidth
               startIcon={
                 isLoading ? <CircularProgress size={20} color="inherit" /> : null
@@ -157,59 +448,98 @@ function StudentUploader() {
           </Stack>
         </form>
 
-        {isError && (
-          <Alert severity="error" sx={{ mt: 2 }}>
-            {error?.data?.message || "Error uploading file. Please try again."}
-          </Alert>
+        {failureReport && (
+          <Box sx={{ mt: 3 }}>
+            <Alert severity="error">
+              <AlertTitle>Upload failed</AlertTitle>
+              {failureReport.message}
+              {renderStatsChips(failureReport.stats)}
+            </Alert>
+            {failureReport.failed.length > 0 && (
+              <Box sx={{ mt: 2 }}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Typography variant="subtitle1" fontWeight={600}>
+                    Failure Details
+                  </Typography>
+                  <Button
+                    size="small"
+                    onClick={() => setShowFailureDetails((prev) => !prev)}
+                  >
+                    {showFailureDetails ? "Hide details" : "Show details"}
+                  </Button>
+                </Stack>
+                <Collapse in={showFailureDetails}>
+                  {renderFailedRecordsTable(failureReport.failed)}
+                </Collapse>
+              </Box>
+            )}
+          </Box>
         )}
 
-        {isSuccess && uploadStats && (
-          <Paper elevation={2} sx={{ mt: 3, p: 2, background: "#f9f9f9" }}>
+        {uploadStats && (
+          <Paper
+            elevation={2}
+            sx={{
+              mt: 3,
+              p: 2,
+              backgroundColor:
+                theme.palette.mode === "dark"
+                  ? theme.palette.background.paper
+                  : "#f9f9f9",
+            }}
+          >
             <Typography variant="h6" gutterBottom>
               Upload Summary
             </Typography>
+            <Alert
+              severity={uploadStats.failed.length ? "warning" : "success"}
+              sx={{ mb: 2 }}
+            >
+              <AlertTitle>
+                {uploadStats.failed.length ? "Completed with issues" : "All records imported"}
+              </AlertTitle>
+              {uploadStats.message || "Review the summary below."}
+            </Alert>
+            {renderStatsChips(uploadStats.stats)}
+            <Divider sx={{ my: 2 }} />
             <List dense>
               <ListItem>
-                <ListItemText primary={`Total Records Processed: ${uploadStats.stats.total}`} />
+                <ListItemText primary={`Total Records Processed: ${uploadStats.stats?.total ?? 0}`} />
               </ListItem>
               <ListItem>
-                <ListItemText primary={`Successfully Imported: ${uploadStats.stats.success}`} sx={{ color: "success.dark" }} />
+                <ListItemText
+                  primary={`Successfully Imported: ${uploadStats.stats?.success ?? 0}`}
+                  sx={{ color: "success.dark" }}
+                />
               </ListItem>
               <ListItem>
-                <ListItemText primary={`Failed to Import: ${uploadStats.stats.failed}`} sx={{ color: "error.dark" }} />
+                <ListItemText
+                  primary={`Failed to Import: ${uploadStats.stats?.failed ?? 0}`}
+                  sx={{ color: "error.dark" }}
+                />
               </ListItem>
             </List>
 
-            {uploadStats.failed && uploadStats.failed.length > 0 && (
-              <>
-                <Typography variant="h6" sx={{ mt: 2, mb: 1 }}>
-                  Failed Records Details
-                </Typography>
-                <TableContainer component={Paper}>
-                  <Table size="small" aria-label="failed records table">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Registration No.</TableCell>
-                        <TableCell>Reason for Failure</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {uploadStats.failed.map((record, index) => (
-                        <TableRow key={index} sx={{ "&:last-child td, &:last-child th": { border: 0 } }}>
-                          <TableCell component="th" scope="row">{record.regNo}</TableCell>
-                          <TableCell sx={{ color: "error.dark" }}>{record.error}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </>
+            {uploadStats.failed.length > 0 && (
+              <Box sx={{ mt: 2 }}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Typography variant="h6">
+                    Failed Records Details
+                  </Typography>
+                  <Button
+                    size="small"
+                    onClick={() => setShowSuccessDetails((prev) => !prev)}
+                  >
+                    {showSuccessDetails ? "Hide details" : "Show details"}
+                  </Button>
+                </Stack>
+                <Collapse in={showSuccessDetails}>
+                  {renderFailedRecordsTable(uploadStats.failed)}
+                </Collapse>
+              </Box>
             )}
           </Paper>
         )}
-
-        <Box sx={{ mt: 3 }}>
-        </Box>
       </Paper>
     </Box>
   );

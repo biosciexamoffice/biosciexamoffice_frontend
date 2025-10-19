@@ -223,7 +223,6 @@ function CourseList({
           my: 2,
           boxShadow: theme.shadows[3],
           borderRadius: 2,
-          overflow: 'hidden'
         }}
       >
         <Table sx={{ minWidth: 650 }} aria-label="courses table">
@@ -272,7 +271,7 @@ function CourseList({
                 >
                   <TableCell component="th" scope="row">
                     <Typography fontWeight="500">
-                      {course.title}
+                      {course.title.toUpperCase()}
                     </Typography>
                   </TableCell>
                   <TableCell>

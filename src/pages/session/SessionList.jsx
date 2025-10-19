@@ -12,12 +12,13 @@ import {
   LinearProgress,
   Button,
   Chip,
+  Stack,
   Tooltip,
 } from '@mui/material';
 import { School, CalendarToday } from '@mui/icons-material';
 import { format } from 'date-fns';
 
-const SessionList = ({ sessions, isLoading, onSessionSelect }) => {
+const SessionList = ({ sessions, isLoading, onSessionSelect, onEditSession, onDeleteSession, isDeleting }) => {
   return (
     <Paper elevation={3} sx={{ p: 3 }}>
       <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
@@ -122,13 +123,39 @@ const SessionList = ({ sessions, isLoading, onSessionSelect }) => {
                     </Tooltip>
                   </TableCell>
                   <TableCell align="right">
-                    <Button 
-                      variant="outlined" 
-                      size="small"
-                      onClick={() => onSessionSelect(session)}
-                    >
-                      View Details
-                    </Button>
+                    <Stack direction="row" spacing={1} justifyContent="flex-end">
+                      <Button 
+                        variant="outlined" 
+                        size="small"
+                        onClick={() => onSessionSelect(session)}
+                      >
+                        View
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        onClick={() => onEditSession?.(session)}
+                        disabled={isCompleted || !onEditSession}
+                      >
+                        Edit
+                      </Button>
+                      <Tooltip
+                        title={session.isCurrent ? 'Cannot delete the current session.' : isCompleted ? 'Completed sessions cannot be deleted.' : 'Delete session'}
+                        arrow
+                      >
+                        <span>
+                          <Button
+                            variant="contained"
+                            color="error"
+                            size="small"
+                            disabled={isDeleting || session.isCurrent || isCompleted || !onDeleteSession}
+                            onClick={() => onDeleteSession?.(session)}
+                          >
+                            Delete
+                          </Button>
+                        </span>
+                      </Tooltip>
+                    </Stack>
                   </TableCell>
                   </TableRow>
                 );

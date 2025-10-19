@@ -668,8 +668,7 @@ const ApprovedCourses = ({
                                                         >
                                                           <Chip
                                                             icon={<CourseIcon fontSize="small" />}
-                                                            size="small"
-                                                            label={`${course.code} - ${course.title}`}
+                                                            label={`${course.code} - ${course.title.toUpperCase()}`}
                                                             color={isElective ? "warning" : "primary"}
                                                             variant={isElective ? "outlined" : "filled"}
                                                             sx={{ maxWidth: '100%' }}
@@ -976,7 +975,7 @@ const ApprovedCourses = ({
                               <Checkbox edge="start" checked={checked} tabIndex={-1} disableRipple />
                             </ListItemIcon>
                             <ListItemText
-                              primary={`${course.code} - ${course.title}`}
+                              primary={`${course.code} - ${course.title.toUpperCase()}`}
                               secondary={`Core • ${course.unit} units`}
                             />
                           </ListItemButton>
@@ -1010,7 +1009,7 @@ const ApprovedCourses = ({
                               <Checkbox edge="start" checked={checked} tabIndex={-1} disableRipple />
                             </ListItemIcon>
                             <ListItemText
-                              primary={`${course.code} - ${course.title}`}
+                              primary={`${course.code} - ${course.title.toUpperCase()}`}
                               secondary={`Elective • ${course.unit} units`}
                             />
                           </ListItemButton>

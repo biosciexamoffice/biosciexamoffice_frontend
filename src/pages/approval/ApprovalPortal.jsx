@@ -3,6 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { Link as RouterLink } from 'react-router-dom';
 import {
   useGetPendingApprovalsQuery,
+  useGetProcessedApprovalsQuery,
   useUpdateMetricsMutation,
   selectCurrentRoles,
   selectCurrentUser,
@@ -26,6 +27,7 @@ import TableContainer from '@mui/material/TableContainer';
 import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
+import MenuItem from '@mui/material/MenuItem';
 import TablePagination from '@mui/material/TablePagination';
 import Alert from '@mui/material/Alert';
 import Chip from '@mui/material/Chip';
@@ -65,6 +67,10 @@ const officerKeysForRole = (roles) => {
 
 const APPROVAL_STAGES = OFFICER_CONFIG.map(({ key, label, shortLabel }) => ({ key, label: shortLabel || label }));
 const ROWS_PER_PAGE_OPTIONS = [5, 10, 25, 50, 100];
+const OFFICER_ORDER = OFFICER_CONFIG.reduce((acc, cfg, index) => {
+  acc[cfg.key] = index;
+  return acc;
+}, {});
 
 const buildOfficerDefaults = (user) => ({
   title: user?.title || '',
@@ -103,6 +109,11 @@ const isOfficerProfileComplete = (detail = {}) =>
 const formatDepartmentCollege = (detail = {}) =>
   [detail.department, detail.college].filter(Boolean).join(' • ');
 
+const isDownstreamOf = (actorKey, targetKey) => {
+  if (!(actorKey in OFFICER_ORDER) || !(targetKey in OFFICER_ORDER)) return false;
+  return OFFICER_ORDER[actorKey] > OFFICER_ORDER[targetKey];
+};
+
 const ApprovalPortal = () => {
   const dispatch = useDispatch();
   const roles = useSelector(selectCurrentRoles);
@@ -128,15 +139,25 @@ const ApprovalPortal = () => {
   const defaultRole = officerRoles[0] || 'COLLEGE_OFFICER';
   const [activeRole, setActiveRole] = useState(defaultRole);
 
-  const [noteDialog, setNoteDialog] = useState({ open: false, metricsId: null, officer: null, note: '' });
+  const [noteDialog, setNoteDialog] = useState({
+    open: false,
+    metricsId: null,
+    officer: null,
+    note: '',
+    mode: 'flag',
+    record: null,
+    targetKey: null,
+  });
   const [detailDialog, setDetailDialog] = useState({ open: false, item: null });
   const [actionError, setActionError] = useState('');
+  const [expandedDepartments, setExpandedDepartments] = useState({});
   const [expandedSessions, setExpandedSessions] = useState({});
   const [expandedLevels, setExpandedLevels] = useState({});
   const [expandedSemesters, setExpandedSemesters] = useState({});
-  const [expandedDepartments, setExpandedDepartments] = useState({});
-  const [departmentPages, setDepartmentPages] = useState({});
+  const [semesterPages, setSemesterPages] = useState({});
   const [rowsPerPage, setRowsPerPage] = useState(ROWS_PER_PAGE_OPTIONS[0]);
+  const [approvalView, setApprovalView] = useState('pending');
+  const [processedStatus, setProcessedStatus] = useState('approved');
   const effectiveRole = officerRoles.includes(activeRole) ? activeRole : officerRoles[0];
   const officer = ROLE_TO_OFFICER[effectiveRole] || OFFICER_CONFIG[0];
   const officerKey = officer.key;
@@ -145,39 +166,49 @@ const ApprovalPortal = () => {
 
   const listLimit = effectiveRole === 'COLLEGE_OFFICER' ? 500 : 200;
 
-  const { data, isFetching } = useGetPendingApprovalsQuery(
+  const { data: pendingData, isFetching } = useGetPendingApprovalsQuery(
     { role: effectiveRole, limit: listLimit },
     { skip: !officerRoles.length }
   );
 
+  const shouldFetchProcessed = officerRoles.length && approvalView === 'processed';
+  const { data: processedData, isFetching: isFetchingProcessed } = useGetProcessedApprovalsQuery(
+    { role: effectiveRole, status: processedStatus, limit: listLimit },
+    { skip: !shouldFetchProcessed }
+  );
+
   const [updateMetrics, { isLoading: isUpdating }] = useUpdateMetricsMutation();
 
-  const pending = data?.items || [];
-  const totalPending = data?.total ?? pending.length;
-  const isTruncated = Boolean(data?.total && data.total > pending.length);
-  const groupedBySession = useMemo(() => {
-    if (!pending.length) return {};
+  const pending = pendingData?.items || [];
+  const totalPending = pendingData?.total ?? pending.length;
+  const isTruncated = Boolean(pendingData?.total && pendingData.total > pending.length);
+  const processed = processedData?.items || [];
+  const totalProcessed = processedData?.total ?? processed.length;
+
+  const currentItems = approvalView === 'pending' ? pending : processed;
+  const groupedByDepartment = useMemo(() => {
+    if (!currentItems.length) return {};
     const groups = {};
-    pending.forEach((item) => {
+    currentItems.forEach((item) => {
+      const department = item.department || 'Unknown Department';
       const session = item.session || 'Unknown Session';
       const level = String(item.level ?? 'Unknown');
       const semester = String(item.semester ?? 'Unknown');
-      const department = item.department || 'Unknown Department';
 
-      groups[session] ||= {};
-      groups[session][level] ||= {};
-      groups[session][level][semester] ||= {};
-      groups[session][level][semester][department] ||= [];
-      groups[session][level][semester][department].push(item);
+      groups[department] ||= {};
+      groups[department][session] ||= {};
+      groups[department][session][level] ||= {};
+      groups[department][session][level][semester] ||= [];
+      groups[department][session][level][semester].push(item);
     });
 
     const regSort = (a, b) =>
       String(a.student?.regNo || '').localeCompare(String(b.student?.regNo || ''), undefined, { numeric: true, sensitivity: 'base' });
 
-    Object.values(groups).forEach((levels) => {
-      Object.values(levels).forEach((semesters) => {
-        Object.values(semesters).forEach((departments) => {
-          Object.values(departments).forEach((items) => {
+    Object.values(groups).forEach((sessions) => {
+      Object.values(sessions).forEach((levels) => {
+        Object.values(levels).forEach((semesters) => {
+          Object.values(semesters).forEach((items) => {
             items.sort(regSort);
           });
         });
@@ -185,54 +216,117 @@ const ApprovalPortal = () => {
     });
 
     return groups;
-  }, [pending]);
+  }, [currentItems]);
 
-  const sessionKeys = useMemo(() => Object.keys(groupedBySession)
-    .sort((a, b) => {
-      const matchA = /^(\d{4})/.exec(String(a));
-      const matchB = /^(\d{4})/.exec(String(b));
-      if (matchA && matchB && matchA[1] !== matchB[1]) {
-        return Number(matchA[1]) - Number(matchB[1]);
-      }
-      return String(a).localeCompare(String(b));
-    }), [groupedBySession]);
+  const currentTotal = approvalView === 'pending' ? totalPending : totalProcessed;
+  const isViewFetching = approvalView === 'pending' ? isFetching : isFetchingProcessed;
+  const viewTruncated = approvalView === 'pending' ? isTruncated : false;
 
-  const keyLevel = (session, level) => `${session}::${level}`;
-  const keySemester = (session, level, semester) => `${session}::${level}::${semester}`;
-  const keyDepartment = (session, level, semester, department) => `${session}::${level}::${semester}::${department}`;
+  const departmentKeys = useMemo(
+    () => Object.keys(groupedByDepartment).sort((a, b) => String(a).localeCompare(String(b))),
+    [groupedByDepartment]
+  );
 
-  const toggleSession = (session) => {
-    setExpandedSessions((prev) => ({ ...prev, [session]: !prev[session] }));
+  const currentLength = currentItems.length;
+  const processedStatusLabelMap = {
+    approved: 'approved',
+    flagged: 'flagged',
+    responded: 'responded',
+    all: 'processed',
+  };
+  const processedStatusLabel = processedStatusLabelMap[processedStatus] || 'processed';
+  const chipLabel = approvalView === 'pending'
+    ? (viewTruncated ? `${currentLength}/${totalPending} pending` : `${currentLength} pending`)
+    : `${currentTotal} ${processedStatusLabel} ${currentTotal === 1 ? 'record' : 'records'}`;
+  const chipColor = approvalView === 'pending' ? 'primary' : 'secondary';
+  const headerDescription = approvalView === 'pending'
+    ? 'Pending items for this role.'
+    : 'Processed items for this role.';
+  const emptyMessage = approvalView === 'pending'
+    ? 'No records awaiting your approval.'
+    : 'No records found for this status.';
+  const noteDialogMode = noteDialog.mode || 'flag';
+  const trimmedNote = noteDialog.note ? noteDialog.note.trim() : '';
+  const requiresNote = noteDialogMode === 'flag' || noteDialogMode === 'resolve';
+  const noteDialogTargetStage =
+    OFFICER_CONFIG.find((cfg) => cfg.key === (noteDialog.targetKey || officer.key)) || officer;
+  const noteDialogTitle = noteDialogMode === 'flag'
+    ? `Flag result for follow-up`
+    : noteDialogMode === 'resolve'
+    ? `Resolve ${noteDialogTargetStage.label} flag`
+    : 'Undo approval';
+  const noteDialogDescription = noteDialogMode === 'flag'
+    ? 'Provide a short note explaining why this record requires attention.'
+    : noteDialogMode === 'resolve'
+    ? `Add a response describing how the ${noteDialogTargetStage.label.toLowerCase()} flag was resolved. The flag will be cleared.`
+    : 'You can record a short note before undoing your approval.';
+  const noteDialogTextLabel = noteDialogMode === 'flag'
+    ? 'Flag note'
+    : noteDialogMode === 'resolve'
+    ? 'Resolution note'
+    : 'Reason (optional)';
+  const noteDialogButtonLabel = noteDialogMode === 'flag'
+    ? 'Flag Record'
+    : noteDialogMode === 'resolve'
+    ? 'Resolve Flag'
+    : 'Unapprove';
+  const noteDialogButtonColor = noteDialogMode === 'flag' ? 'error' : noteDialogMode === 'resolve' ? 'primary' : 'warning';
+  const isNoteDialogDisabled = isUpdating || (requiresNote && !trimmedNote);
+
+  const keySession = (department, session) => `${department}::${session}`;
+  const keyLevel = (department, session, level) => `${department}::${session}::${level}`;
+  const keySemester = (department, session, level, semester) => `${department}::${session}::${level}::${semester}`;
+
+  const toggleDepartment = (department) => {
+    setExpandedDepartments((prev) => ({ ...prev, [department]: !prev[department] }));
   };
 
-  const toggleLevel = (session, level) => {
-    const key = keyLevel(session, level);
+  const toggleSession = (department, session) => {
+    const key = keySession(department, session);
+    setExpandedSessions((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const toggleLevel = (department, session, level) => {
+    const key = keyLevel(department, session, level);
     setExpandedLevels((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const toggleSemester = (session, level, semester) => {
-    const key = keySemester(session, level, semester);
+  const toggleSemester = (department, session, level, semester) => {
+    const key = keySemester(department, session, level, semester);
     setExpandedSemesters((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const toggleDepartment = (session, level, semester, department) => {
-    const key = keyDepartment(session, level, semester, department);
-    setExpandedDepartments((prev) => ({ ...prev, [key]: !prev[key] }));
+  const handleViewChange = (_event, value) => {
+    if (!value) return;
+    setApprovalView(value);
+    setExpandedDepartments({});
+    setExpandedSessions({});
+    setExpandedLevels({});
+    setExpandedSemesters({});
+    setSemesterPages({});
+    if (value === 'pending') {
+      setProcessedStatus('approved');
+    }
   };
 
-  const handleDepartmentPageChange = (departmentKey, newPage) => {
-    setDepartmentPages((prev) => ({ ...prev, [departmentKey]: newPage }));
+  const handleSemesterPageChange = (semesterKey, newPage) => {
+    setSemesterPages((prev) => ({ ...prev, [semesterKey]: newPage }));
   };
 
   const handleRowsPerPageChange = (event) => {
     const newRowsPerPage = parseInt(event.target.value, 10);
     setRowsPerPage(newRowsPerPage);
-    setDepartmentPages({}); // Reset page to 0 for all tables
+    setSemesterPages({}); // Reset page to 0 for all tables
   };
   const currentDetailMetrics = detailDialog.item?.currentMetrics || {};
   const previousDetailMetrics = detailDialog.item?.previousMetrics || {};
   const cumulativeDetailMetrics = detailDialog.item?.cumulative || {};
   const activeOfficerApproval = detailDialog.item?.approvals?.[officer.key] || {};
+  const detailApprovals = detailDialog.item?.approvals || {};
+  const detailFlaggedStages = OFFICER_CONFIG.filter((stage) => detailApprovals[stage.key]?.flagged);
+  const detailDownstreamFlag = detailFlaggedStages.find(
+    (stage) => stage.key !== officer.key && (roles.includes('ADMIN') || isDownstreamOf(officer.key, stage.key))
+  );
   const normalizeOfficer = (approval = {}) => ({
     approved: Boolean(approval?.approved),
     flagged: Boolean(approval?.flagged),
@@ -240,12 +334,16 @@ const ApprovalPortal = () => {
     title: approval?.title || '',
     surname: approval?.surname || '',
     firstname: approval?.firstname || '',
-    middlename: approval?.middlename || '',
-    department: approval?.department || '',
-    college: approval?.college || '',
-    note: approval?.note || '',
-    updatedAt: approval?.updatedAt || null,
-  });
+  middlename: approval?.middlename || '',
+  department: approval?.department || '',
+  college: approval?.college || '',
+  note: approval?.note || '',
+  response: approval?.response || '',
+  responseBy: approval?.responseBy || '',
+  responseAt: approval?.responseAt || null,
+  flagClearedAt: approval?.flagClearedAt || null,
+  updatedAt: approval?.updatedAt || null,
+});
 
   if (!officerRoles.length) {
     return (
@@ -255,7 +353,15 @@ const ApprovalPortal = () => {
     );
   }
 
-  const submitApproval = async ({ metricsId, approved, note, flagged, onSuccess }) => {
+  const submitApproval = async ({
+    metricsId,
+    approved,
+    note,
+    flagged,
+    response,
+    onSuccess,
+    targetOfficerKey,
+  }) => {
     if (readOnly) {
       setActionError('Approvals are disabled while you are connected to the read-only replica.');
       return false;
@@ -267,22 +373,40 @@ const ApprovalPortal = () => {
       user?.pfNo ||
       user?.email ||
       '';
+    const targetOfficer =
+      OFFICER_CONFIG.find((cfg) => cfg.key === (targetOfficerKey || officer.key)) || officer;
+    const submittingAsOwnStage = targetOfficer.key === officer.key;
     try {
-      const response = await updateMetrics({
+      const payload = {
         metricsId,
-        [officer.approvedKey]: approved,
-        [officer.flaggedKey]: Boolean(flagged),
-        [officer.nameKey]: displayName,
-        [officer.titleKey]: (profile.title || '').trim(),
-        [officer.surnameKey]: (profile.surname || '').trim(),
-        [officer.firstnameKey]: (profile.firstname || '').trim(),
-        [officer.middlenameKey]: (profile.middlename || '').trim(),
-        [officer.departmentKey]: (profile.department || '').trim(),
-        [officer.collegeKey]: (profile.college || '').trim(),
-        ...(note ? { [officer.noteKey]: note } : {}),
-      }).unwrap();
-      setNoteDialog({ open: false, metricsId: null, officer: null, note: '' });
-      const updatedMetrics = response?.updatedMetrics;
+      };
+
+      if (approved !== undefined) {
+        payload[targetOfficer.approvedKey] = approved;
+      }
+      if (flagged !== undefined) {
+        payload[targetOfficer.flaggedKey] = Boolean(flagged);
+      }
+      if (submittingAsOwnStage) {
+        payload[targetOfficer.nameKey] = displayName;
+        payload[targetOfficer.titleKey] = (profile.title || '').trim();
+        payload[targetOfficer.surnameKey] = (profile.surname || '').trim();
+        payload[targetOfficer.firstnameKey] = (profile.firstname || '').trim();
+        payload[targetOfficer.middlenameKey] = (profile.middlename || '').trim();
+        payload[targetOfficer.departmentKey] = (profile.department || '').trim();
+        payload[targetOfficer.collegeKey] = (profile.college || '').trim();
+      }
+      if (note !== undefined && note !== null) {
+        payload[targetOfficer.noteKey] = note;
+      }
+      if (response !== undefined) {
+        payload[targetOfficer.responseKey] = response;
+        payload[targetOfficer.responseByKey] = displayName;
+      }
+
+      const apiResponse = await updateMetrics(payload).unwrap();
+      setNoteDialog({ open: false, metricsId: null, officer: null, note: '', mode: 'flag', record: null, targetKey: null });
+      const updatedMetrics = apiResponse?.updatedMetrics;
       if (updatedMetrics) {
         const approvals = {
           ceo: normalizeOfficer(updatedMetrics.ceoApproval),
@@ -337,6 +461,9 @@ const ApprovalPortal = () => {
           )
         );
       }
+      const pendingTag = { type: 'Approval', role: `${effectiveRole}-${listLimit}` };
+      const processedTag = { type: 'Approval', role: `${effectiveRole}-${processedStatus}-${listLimit}` };
+      dispatch(approvalApi.util.invalidateTags([pendingTag, processedTag]));
       if (typeof onSuccess === 'function') {
         onSuccess();
       }
@@ -348,6 +475,11 @@ const ApprovalPortal = () => {
   };
 
   const handleApprove = (record, options = {}) => {
+    const approvalEntry = record.approvals?.[officer.key] || {};
+    if (approvalEntry.flagged) {
+      setActionError('Resolve the flag before approving this record.');
+      return false;
+    }
     return submitApproval({
       metricsId: record.metricsId,
       approved: true,
@@ -356,21 +488,106 @@ const ApprovalPortal = () => {
   };
 
   const handleOpenFlag = (record) => {
-    setNoteDialog({ open: true, metricsId: record.metricsId, officer, note: '' });
+    setActionError('');
+    setNoteDialog({
+      open: true,
+      metricsId: record.metricsId,
+      officer,
+      note: '',
+      mode: 'flag',
+      record,
+      targetKey: officer.key,
+    });
   };
 
-  const handleFlagSubmit = () => {
-    submitApproval({
-      metricsId: noteDialog.metricsId,
-      approved: false,
-      flagged: true,
-      note: noteDialog.note,
-      onSuccess: () => {
-        if (detailDialog.open && detailDialog.item?.metricsId === noteDialog.metricsId) {
-          setDetailDialog({ open: false, item: null });
-        }
-      },
+  const handleResolveFlag = (record, targetKey = officer.key) => {
+    setActionError('');
+    const targetApproval = record.approvals?.[targetKey] || {};
+    setNoteDialog({
+      open: true,
+      metricsId: record.metricsId,
+      officer,
+      note: targetApproval.response || '',
+      mode: 'resolve',
+      record,
+      targetKey,
     });
+  };
+
+  const handleUnapprove = (record) => {
+    setActionError('');
+    setNoteDialog({
+      open: true,
+      metricsId: record.metricsId,
+      officer,
+      note: '',
+      mode: 'unapprove',
+      record,
+      targetKey: officer.key,
+    });
+  };
+
+  const handleNoteDialogSubmit = async () => {
+    const { mode, metricsId, note, targetKey } = noteDialog;
+    const trimmedNote = note.trim();
+    const closeDialogs = () => {
+      setNoteDialog({
+        open: false,
+        metricsId: null,
+        officer: null,
+        note: '',
+        mode: 'flag',
+        record: null,
+        targetKey: null,
+      });
+      if (detailDialog.open && detailDialog.item?.metricsId === metricsId) {
+        setDetailDialog({ open: false, item: null });
+      }
+    };
+
+    setActionError('');
+
+    if (mode === 'flag') {
+      if (!trimmedNote) {
+        setActionError('Provide a note explaining why this record is being flagged.');
+        return;
+      }
+      await submitApproval({
+        metricsId,
+        approved: false,
+        flagged: true,
+        note: trimmedNote,
+        targetOfficerKey: targetKey || officer.key,
+        onSuccess: closeDialogs,
+      });
+      return;
+    }
+
+    if (mode === 'resolve') {
+      if (!trimmedNote) {
+        setActionError('Add a response before clearing the flag.');
+        return;
+      }
+      await submitApproval({
+        metricsId,
+        flagged: false,
+        response: trimmedNote,
+        targetOfficerKey: targetKey || officer.key,
+        onSuccess: closeDialogs,
+      });
+      return;
+    }
+
+    if (mode === 'unapprove') {
+      await submitApproval({
+        metricsId,
+        approved: false,
+        flagged: false,
+        note: trimmedNote || undefined,
+        targetOfficerKey: targetKey || officer.key,
+        onSuccess: closeDialogs,
+      });
+    }
   };
 
   const approvalRoles = useMemo(() => {
@@ -417,8 +634,8 @@ const ApprovalPortal = () => {
     </CardActionArea>
   );
 
-  const renderDepartmentTable = (items, departmentKey) => {
-    const page = departmentPages[departmentKey] || 0;
+  const renderSemesterTable = (items, semesterKey) => {
+    const page = semesterPages[semesterKey] || 0;
     const paginatedItems = items.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
     const totalPages = Math.ceil(items.length / rowsPerPage);
 
@@ -435,6 +652,27 @@ const ApprovalPortal = () => {
               const cgpaValue = Number(item.cumulative?.CGPA || 0);
               const cgpa = cgpaValue.toFixed(2);
               const highlightZero = (value) => Number(value) === 0;
+              const approvalsMap = item.approvals || {};
+              const approvalEntry = approvalsMap[officer.key] || {};
+              const flaggedStages = OFFICER_CONFIG.filter((cfg) => approvalsMap[cfg.key]?.flagged);
+              const primaryFlag = flaggedStages[0] || null;
+              const isFlagged = Boolean(approvalEntry.flagged);
+              const isApproved = Boolean(approvalEntry.approved);
+              const responseLogged = Boolean((approvalEntry.response || '').trim());
+              const anyFlagged = flaggedStages.length > 0;
+              const disableApprove =
+                isUpdating ||
+                !officerProfileComplete ||
+                readOnly ||
+                isFlagged ||
+                anyFlagged;
+              const showApproveButton = approvalView === 'pending';
+              const showFlagButton = approvalView === 'pending' && !isFlagged;
+              const showUnapproveButton = approvalView === 'processed' && isApproved;
+              const resolveDisabled = isUpdating || readOnly;
+              const downstreamFlag = flaggedStages.find(
+                (stage) => stage.key !== officer.key && (roles.includes('ADMIN') || isDownstreamOf(officer.key, stage.key))
+              );
 
               return (
                 <Card key={item.metricsId} variant="outlined">
@@ -469,6 +707,22 @@ const ApprovalPortal = () => {
                           {item.department || '—'}
                         </Typography>
                       </Stack>
+                      <Stack direction="row" spacing={1} flexWrap="wrap">
+                        {isApproved && (
+                          <Chip label="Approved" size="small" color="success" />
+                        )}
+                        {flaggedStages.map((stage) => (
+                          <Chip
+                            key={`${stage.key}-flag`}
+                            label={`${stage.label} Flagged`}
+                            size="small"
+                            color="warning"
+                          />
+                        ))}
+                        {responseLogged && !isFlagged && (
+                          <Chip label="Response logged" size="small" color="success" variant="outlined" />
+                        )}
+                      </Stack>
                     </Stack>
                   </CardActionArea>
                   <CardActions sx={{ px: 2, pb: 2, pt: 0, gap: 1, flexWrap: 'wrap' }}>
@@ -484,33 +738,85 @@ const ApprovalPortal = () => {
                     >
                       Details
                     </Button>
-                    <Button
-                      variant="contained"
-                      size="small"
-                      fullWidth={isMobile}
-                      sx={{ flexGrow: 1 }}
-                      disabled={isUpdating || !officerProfileComplete || readOnly}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleApprove(item);
-                      }}
-                    >
-                      Approve
-                    </Button>
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      color="error"
-                      fullWidth={isMobile}
-                      sx={{ flexGrow: 1 }}
-                      disabled={isUpdating || readOnly}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleOpenFlag(item);
-                      }}
-                    >
-                      Flag
-                    </Button>
+                    {isFlagged && (
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        color="warning"
+                        fullWidth={isMobile}
+                        sx={{ flexGrow: 1 }}
+                        disabled={resolveDisabled}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleResolveFlag(item, officer.key);
+                        }}
+                      >
+                        Resolve Flag
+                      </Button>
+                    )}
+                    {downstreamFlag && (
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        color="warning"
+                        fullWidth={isMobile}
+                        sx={{ flexGrow: 1 }}
+                        disabled={resolveDisabled}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleResolveFlag(item, downstreamFlag.key);
+                        }}
+                      >
+                        Resolve {downstreamFlag.label}
+                      </Button>
+                    )}
+                    {showApproveButton && (
+                      <Button
+                        variant="contained"
+                        size="small"
+                        fullWidth={isMobile}
+                        sx={{ flexGrow: 1 }}
+                        disabled={disableApprove}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleApprove(item);
+                        }}
+                      >
+                        Approve
+                      </Button>
+                    )}
+                    {showFlagButton && (
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        color="error"
+                        fullWidth={isMobile}
+                        sx={{ flexGrow: 1 }}
+                        disabled={isUpdating || readOnly}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenFlag(item);
+                        }}
+                      >
+                        Flag
+                      </Button>
+                    )}
+                    {showUnapproveButton && (
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        color="error"
+                        fullWidth={isMobile}
+                        sx={{ flexGrow: 1 }}
+                        disabled={isUpdating || readOnly}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleUnapprove(item);
+                        }}
+                      >
+                        Unapprove
+                      </Button>
+                    )}
                   </CardActions>
                 </Card>
               );
@@ -550,57 +856,125 @@ const ApprovalPortal = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {paginatedItems.map((item) => (
-              <TableRow
-                key={item.metricsId}
-                hover
-                onClick={() => setDetailDialog({ open: true, item })}
-                sx={{ cursor: 'pointer' }}
-              >
-                <TableCell>{item.student?.regNo || '—'}</TableCell>
-                <TableCell>{item.student?.fullName || '—'}</TableCell>
-                <TableCell align="center">{Number(item.currentMetrics?.TCE || 0)}</TableCell>
-                <TableCell align="center">{Number(item.currentMetrics?.GPA || 0).toFixed(2)}</TableCell>
-                <TableCell align="center">{Number(item.cumulative?.CGPA || 0).toFixed(2)}</TableCell>
-                <TableCell align="right">
-                  <Stack direction="row" spacing={1} justifyContent="flex-end">
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDetailDialog({ open: true, item });
-                      }}
-                    >
-                      Details
-                    </Button>
-                    <Button
-                      variant="contained"
-                      size="small"
-                      disabled={isUpdating || !officerProfileComplete || readOnly}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleApprove(item);
-                      }}
-                    >
-                      Approve
-                    </Button>
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      color="error"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleOpenFlag(item);
-                      }}
-                      disabled={isUpdating || readOnly}
-                    >
-                      Flag
-                    </Button>
-                  </Stack>
-                </TableCell>
-              </TableRow>
-            ))}
+            {paginatedItems.map((item) => {
+              const approvalsMap = item.approvals || {};
+              const approvalEntry = approvalsMap[officer.key] || {};
+              const flaggedStages = OFFICER_CONFIG.filter((cfg) => approvalsMap[cfg.key]?.flagged);
+              const isFlagged = Boolean(approvalEntry.flagged);
+              const isApproved = Boolean(approvalEntry.approved);
+              const anyFlagged = flaggedStages.length > 0;
+              const disableApprove =
+                isUpdating ||
+                !officerProfileComplete ||
+                readOnly ||
+                isFlagged ||
+                anyFlagged;
+              const showApproveButton = approvalView === 'pending';
+              const showFlagButton = approvalView === 'pending' && !isFlagged;
+              const showUnapproveButton = approvalView === 'processed' && isApproved;
+              const resolveDisabled = isUpdating || readOnly;
+              const downstreamFlag = flaggedStages.find(
+                (stage) => stage.key !== officer.key && (roles.includes('ADMIN') || isDownstreamOf(officer.key, stage.key))
+              );
+
+              return (
+                <TableRow
+                  key={item.metricsId}
+                  hover
+                  onClick={() => setDetailDialog({ open: true, item })}
+                  sx={{ cursor: 'pointer' }}
+                >
+                  <TableCell>{item.student?.regNo || '—'}</TableCell>
+                  <TableCell>{item.student?.fullName || '—'}</TableCell>
+                  <TableCell align="center">{Number(item.currentMetrics?.TCE || 0)}</TableCell>
+                  <TableCell align="center">{Number(item.currentMetrics?.GPA || 0).toFixed(2)}</TableCell>
+                  <TableCell align="center">{Number(item.cumulative?.CGPA || 0).toFixed(2)}</TableCell>
+                  <TableCell align="right">
+                    <Stack direction="row" spacing={1} justifyContent="flex-end">
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDetailDialog({ open: true, item });
+                        }}
+                      >
+                        Details
+                      </Button>
+                      {isFlagged && (
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          color="warning"
+                          disabled={resolveDisabled}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleResolveFlag(item, officer.key);
+                          }}
+                        >
+                          Resolve Flag
+                        </Button>
+                      )}
+                      {downstreamFlag && (
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          color="warning"
+                          disabled={resolveDisabled}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleResolveFlag(item, downstreamFlag.key);
+                          }}
+                        >
+                          Resolve {downstreamFlag.label}
+                        </Button>
+                      )}
+                      {showApproveButton && (
+                        <Button
+                          variant="contained"
+                          size="small"
+                          disabled={disableApprove}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleApprove(item);
+                          }}
+                        >
+                          Approve
+                        </Button>
+                      )}
+                      {showFlagButton && (
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          color="error"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenFlag(item);
+                          }}
+                          disabled={isUpdating || readOnly}
+                        >
+                          Flag
+                        </Button>
+                      )}
+                      {showUnapproveButton && (
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          color="error"
+                          disabled={isUpdating || readOnly}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleUnapprove(item);
+                          }}
+                        >
+                          Unapprove
+                        </Button>
+                      )}
+                    </Stack>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
             {(!paginatedItems.length) && (
               <TableRow>
                 <TableCell colSpan={6} align="center">No records available.</TableCell>
@@ -615,7 +989,7 @@ const ApprovalPortal = () => {
             rowsPerPage={rowsPerPage}
             rowsPerPageOptions={ROWS_PER_PAGE_OPTIONS}
             page={page}
-            onPageChange={(_, newPage) => handleDepartmentPageChange(departmentKey, newPage)}
+            onPageChange={(_, newPage) => handleSemesterPageChange(semesterKey, newPage)}
             onRowsPerPageChange={handleRowsPerPageChange}
           />
         )}
@@ -634,80 +1008,87 @@ const ApprovalPortal = () => {
         boxShadow: theme.shadows[1],
       }}
     >
-      {sessionKeys.map((session) => {
-        const levels = groupedBySession[session];
-        const levelKeys = Object.keys(levels).sort((a, b) => {
-          const numA = Number(a);
-          const numB = Number(b);
-          if (!Number.isNaN(numA) && !Number.isNaN(numB)) return numA - numB;
+      {departmentKeys.map((department) => {
+        const sessions = groupedByDepartment[department] || {};
+        const sessionList = Object.keys(sessions).sort((a, b) => {
+          const matchA = /^(\d{4})/.exec(String(a));
+          const matchB = /^(\d{4})/.exec(String(b));
+          if (matchA && matchB && matchA[1] !== matchB[1]) {
+            return Number(matchA[1]) - Number(matchB[1]);
+          }
           return String(a).localeCompare(String(b));
         });
         return (
-          <Box key={session} sx={{ mb: 1 }}>
+          <Box key={department} sx={{ mb: 1 }}>
             <Card variant="outlined" sx={{ mb: 1 }}>
               <FolderHeader
-                icon={<SessionIcon fontSize="small" />}
-                title={`Session ${session}`}
-                count={levelKeys.length}
-                expanded={!!expandedSessions[session]}
-                onClick={() => toggleSession(session)}
+                icon={<DepartmentIcon fontSize="small" />}
+                title={department}
+                count={sessionList.length}
+                expanded={!!expandedDepartments[department]}
+                onClick={() => toggleDepartment(department)}
               />
-              <Collapse in={!!expandedSessions[session]} timeout="auto" unmountOnExit>
+              <Collapse in={!!expandedDepartments[department]} timeout="auto" unmountOnExit>
                 <Box sx={{ ml: { xs: 1, md: 3 } }}>
-                  {levelKeys.map((level) => {
-                    const semesters = levels[level];
-                    const semesterKeys = Object.keys(semesters).sort((a, b) => Number(a) - Number(b));
-                    const levelKey = keyLevel(session, level);
+                  {sessionList.map((session) => {
+                    const levels = sessions[session] || {};
+                    const levelList = Object.keys(levels).sort((a, b) => {
+                      const numA = Number(a);
+                      const numB = Number(b);
+                      if (!Number.isNaN(numA) && !Number.isNaN(numB)) return numA - numB;
+                      return String(a).localeCompare(String(b));
+                    });
+                    const sessionKey = keySession(department, session);
                     return (
-                      <Box key={level} sx={{ mb: 1 }}>
+                      <Box key={session} sx={{ mb: 1 }}>
                         <Card variant="outlined" sx={{ mb: 1 }}>
                           <FolderHeader
-                            icon={<LevelIcon fontSize="small" />}
-                            title={`Level ${level}`}
-                            count={semesterKeys.length}
-                            expanded={!!expandedLevels[levelKey]}
-                            onClick={() => toggleLevel(session, level)}
+                            icon={<SessionIcon fontSize="small" />}
+                            title={`Session ${session}`}
+                            count={levelList.length}
+                            expanded={!!expandedSessions[sessionKey]}
+                            onClick={() => toggleSession(department, session)}
                           />
-                          <Collapse in={!!expandedLevels[levelKey]} timeout="auto" unmountOnExit>
+                          <Collapse in={!!expandedSessions[sessionKey]} timeout="auto" unmountOnExit>
                             <Box sx={{ ml: { xs: 1, md: 3 } }}>
-                              {semesterKeys.map((semester) => {
-                                const departments = semesters[semester];
-                                const departmentKeys = Object.keys(departments).sort((a, b) => String(a).localeCompare(String(b)));
-                                const semesterKey = keySemester(session, level, semester);
+                              {levelList.map((level) => {
+                                const semesters = levels[level] || {};
+                                const semesterList = Object.keys(semesters).sort((a, b) => Number(a) - Number(b));
+                                const levelKey = keyLevel(department, session, level);
                                 return (
-                                  <Box key={semester} sx={{ mb: 1 }}>
+                                  <Box key={level} sx={{ mb: 1 }}>
                                     <Card variant="outlined" sx={{ mb: 1 }}>
                                       <FolderHeader
-                                        icon={<SemesterIcon fontSize="small" />}
-                                        title={`Semester ${semester}`}
-                                        count={departmentKeys.length}
-                                        expanded={!!expandedSemesters[semesterKey]}
-                                        onClick={() => toggleSemester(session, level, semester)}
+                                        icon={<LevelIcon fontSize="small" />}
+                                        title={`Level ${level}`}
+                                        count={semesterList.length}
+                                        expanded={!!expandedLevels[levelKey]}
+                                        onClick={() => toggleLevel(department, session, level)}
                                       />
-                                      <Collapse in={!!expandedSemesters[semesterKey]} timeout="auto" unmountOnExit>
-                                        <Box sx={{ ml: { xs: 1, md: 3 }, mb: 1 }}>
-                                          {departmentKeys.map((department) => {
-                                            const items = departments[department];
-                                            const departmentKey = keyDepartment(session, level, semester, department);
+                                      <Collapse in={!!expandedLevels[levelKey]} timeout="auto" unmountOnExit>
+                                        <Box sx={{ ml: { xs: 1, md: 3 } }}>
+                                          {semesterList.map((semester) => {
+                                            const items = semesters[semester] || [];
+                                            const semesterKey = keySemester(department, session, level, semester);
                                             return (
-                                              <Box key={department} sx={{ mb: 2 }}>
-                                                <Card variant="outlined">
+                                              <Box key={semester} sx={{ mb: 1 }}>
+                                                <Card variant="outlined" sx={{ mb: 1 }}>
                                                   <FolderHeader
-                                                    icon={<DepartmentIcon fontSize="small" />}
-                                                    title={department}
+                                                    icon={<SemesterIcon fontSize="small" />}
+                                                    title={`Semester ${semester}`}
                                                     count={items.length}
-                                                    expanded={!!expandedDepartments[departmentKey]}
-                                                    onClick={() => toggleDepartment(session, level, semester, department)}
+                                                    expanded={!!expandedSemesters[semesterKey]}
+                                                    onClick={() => toggleSemester(department, session, level, semester)}
                                                   />
-                                                  <Collapse in={!!expandedDepartments[departmentKey]} timeout="auto" unmountOnExit>
+                                                  <Collapse in={!!expandedSemesters[semesterKey]} timeout="auto" unmountOnExit>
                                                     <Box sx={{ p: { xs: 1.5, md: 2 } }}>
                                                       {isTabletDown ? (
                                                         <Box>
-                                                          {renderDepartmentTable(items, departmentKey)}
+                                                          {renderSemesterTable(items, semesterKey)}
                                                         </Box>
                                                       ) : (
                                                         <TableContainer component={Paper} variant="outlined">
-                                                          {renderDepartmentTable(items, departmentKey)}
+                                                          {renderSemesterTable(items, semesterKey)}
                                                         </TableContainer>
                                                       )}
                                                     </Box>
@@ -825,39 +1206,73 @@ const ApprovalPortal = () => {
 
           <Stack
             direction={{ xs: 'column', md: 'row' }}
+            spacing={1.5}
+            alignItems={{ xs: 'flex-start', md: 'center' }}
+            justifyContent="space-between"
+          >
+            <Tabs
+              value={approvalView}
+              onChange={handleViewChange}
+              aria-label="Approval view"
+              textColor="primary"
+              indicatorColor="primary"
+            >
+              <Tab value="pending" label="Pending" />
+              <Tab value="processed" label="Processed" />
+            </Tabs>
+            {approvalView === 'processed' && (
+              <TextField
+                select
+                label="Status"
+                size="small"
+                value={processedStatus}
+                onChange={(event) => setProcessedStatus(event.target.value)}
+                sx={{ minWidth: 200 }}
+              >
+                <MenuItem value="approved">Approved</MenuItem>
+                <MenuItem value="flagged">Flagged</MenuItem>
+                <MenuItem value="responded">Responded</MenuItem>
+                <MenuItem value="all">All processed</MenuItem>
+              </TextField>
+            )}
+          </Stack>
+
+          <Stack
+            direction={{ xs: 'column', md: 'row' }}
             spacing={2}
             alignItems={{ xs: 'flex-start', md: 'center' }}
             justifyContent="space-between"
           >
             <Typography variant="body2" color="text.secondary">
-              Pending items for this role.
+              {headerDescription}
             </Typography>
             <Chip
-              label={isTruncated ? `${pending.length}/${totalPending} pending` : `${pending.length} pending`}
-              color="primary"
+              label={chipLabel}
+              color={chipColor}
               variant="outlined"
+              size="small"
             />
           </Stack>
-          {isTruncated && (
+          {approvalView === 'pending' && viewTruncated && (
             <Typography variant="caption" color="text.secondary">
-              Showing the first {pending.length} records. Use filters to narrow the list.
+              Showing the first {currentLength} records. Use filters to narrow the list.
             </Typography>
           )}
         </Stack>
       </Paper>
 
-      {isFetching ? (
+      {isViewFetching ? (
         <Paper elevation={2}>
           <Stack alignItems="center" justifyContent="center" sx={{ p: 4 }}>
             <CircularProgress />
             <Typography variant="body2" sx={{ mt: 2 }}>Loading approvals…</Typography>
           </Stack>
         </Paper>
-      ) : !pending.length ? (
+      ) : !currentItems.length ? (
         <Paper elevation={2}>
           <Stack alignItems="center" justifyContent="center" sx={{ p: 4 }}>
             <Typography variant="body1" color="text.secondary">
-              No records awaiting your approval.
+              {emptyMessage}
             </Typography>
           </Stack>
         </Paper>
@@ -867,35 +1282,35 @@ const ApprovalPortal = () => {
 
       <Dialog
         open={noteDialog.open}
-        onClose={() => setNoteDialog({ open: false, metricsId: null, officer: null, note: '' })}
+        onClose={() => setNoteDialog({ open: false, metricsId: null, officer: null, note: '', mode: 'flag', record: null })}
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>Flag result for follow-up</DialogTitle>
+        <DialogTitle>{noteDialogTitle}</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
           <Typography variant="body2">
-            Provide a short note explaining why this record requires attention.
+            {noteDialogDescription}
           </Typography>
           <TextField
-            label="Flag Note"
+            label={noteDialogTextLabel}
             multiline
             minRows={3}
             value={noteDialog.note}
             onChange={(event) => setNoteDialog((prev) => ({ ...prev, note: event.target.value }))}
           />
         </DialogContent>
-      <DialogActions>
-        <Button onClick={() => setNoteDialog({ open: false, metricsId: null, officer: null, note: '' })}>Cancel</Button>
-        <Button
-          variant="contained"
-          color="error"
-          onClick={handleFlagSubmit}
-          disabled={isUpdating || !noteDialog.note.trim()}
-        >
-          Flag Record
-        </Button>
-      </DialogActions>
-    </Dialog>
+        <DialogActions>
+          <Button onClick={() => setNoteDialog({ open: false, metricsId: null, officer: null, note: '', mode: 'flag', record: null })}>Cancel</Button>
+          <Button
+            variant="contained"
+            color={noteDialogButtonColor}
+            onClick={handleNoteDialogSubmit}
+            disabled={isNoteDialogDisabled}
+          >
+            {noteDialogButtonLabel}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog
         open={detailDialog.open}
@@ -987,9 +1402,24 @@ const ApprovalPortal = () => {
                               {approvalEntry.approved && <Chip label="Approved" color="success" size="small" />}
                               {approvalEntry.flagged && <Chip label="Flagged" color="warning" size="small" />}
                             </Stack>
+                            {approvalEntry.note && (
+                              <Typography variant="caption" color="text.secondary">
+                                Note: {approvalEntry.note}
+                              </Typography>
+                            )}
+                            {approvalEntry.response && (
+                              <Typography variant="caption" color="text.secondary">
+                                Response: {approvalEntry.response}
+                              </Typography>
+                            )}
                             {approvalEntry.updatedAt && (
                               <Typography variant="caption" color="text.secondary">
                                 Updated {new Date(approvalEntry.updatedAt).toLocaleString()}
+                              </Typography>
+                            )}
+                            {approvalEntry.flagClearedAt && (
+                              <Typography variant="caption" color="text.secondary">
+                                Flag cleared {new Date(approvalEntry.flagClearedAt).toLocaleString()}
                               </Typography>
                             )}
                           </Stack>
@@ -1000,14 +1430,36 @@ const ApprovalPortal = () => {
                 </Grid>
               </Box>
 
-              {(activeOfficerApproval.flagged || activeOfficerApproval.note) && (
-                <Alert severity={activeOfficerApproval.flagged ? 'warning' : 'info'} variant="outlined">
-                  <Typography variant="subtitle2" gutterBottom>
-                    {activeOfficerApproval.flagged ? 'Flagged for follow-up' : 'Officer Note'}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {activeOfficerApproval.note || 'No additional context provided.'}
-                  </Typography>
+              {(activeOfficerApproval.flagged || activeOfficerApproval.note || activeOfficerApproval.response) && (
+                <Alert
+                  severity={activeOfficerApproval.flagged ? 'warning' : activeOfficerApproval.response ? 'success' : 'info'}
+                  variant="outlined"
+                >
+                  {activeOfficerApproval.flagged && (
+                    <>
+                      <Typography variant="subtitle2" gutterBottom>
+                        Flagged for follow-up
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" gutterBottom>
+                        {activeOfficerApproval.note || 'No additional context provided.'}
+                      </Typography>
+                    </>
+                  )}
+                  {!activeOfficerApproval.flagged && activeOfficerApproval.note && (
+                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                      {activeOfficerApproval.note}
+                    </Typography>
+                  )}
+                  {activeOfficerApproval.response && (
+                    <Typography variant="body2" color="text.secondary">
+                      Response: {activeOfficerApproval.response}
+                    </Typography>
+                  )}
+                  {activeOfficerApproval.flagClearedAt && (
+                    <Typography variant="caption" color="text.secondary">
+                      Flag cleared {new Date(activeOfficerApproval.flagClearedAt).toLocaleString()}
+                    </Typography>
+                  )}
                 </Alert>
               )}
 
@@ -1059,32 +1511,56 @@ const ApprovalPortal = () => {
             </Stack>
           )}
         </DialogContent>
-      <DialogActions sx={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
-        <Button onClick={() => setDetailDialog({ open: false, item: null })}>Close</Button>
-        {detailDialog.item && (
-          <Stack direction="row" spacing={1}>
-            <Button
-              variant="outlined"
-              color="error"
-              onClick={() => handleOpenFlag(detailDialog.item)}
-              disabled={isUpdating || readOnly}
-            >
-              Flag
-            </Button>
-            <Button
-              variant="contained"
-              onClick={async () => {
-                await handleApprove(detailDialog.item, {
-                  onSuccess: () => setDetailDialog({ open: false, item: null }),
-                });
-              }}
-              disabled={isUpdating || !officerProfileComplete || readOnly}
-            >
-              {isUpdating ? 'Saving…' : 'Approve'}
-            </Button>
-          </Stack>
-        )}
-      </DialogActions>
+        <DialogActions sx={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+          <Button onClick={() => setDetailDialog({ open: false, item: null })}>Close</Button>
+          {detailDialog.item && (
+            <Stack direction="row" spacing={1}>
+              {activeOfficerApproval.flagged && (
+                <Button
+                  variant="outlined"
+                  color="warning"
+                  onClick={() => handleResolveFlag(detailDialog.item)}
+                  disabled={isUpdating || readOnly}
+                >
+                  Resolve Flag
+                </Button>
+              )}
+              {!activeOfficerApproval.flagged && (
+                <Button
+                  variant="outlined"
+                  color="error"
+                  onClick={() => handleOpenFlag(detailDialog.item)}
+                  disabled={isUpdating || readOnly}
+                >
+                  Flag
+                </Button>
+              )}
+              {activeOfficerApproval.approved && (
+                <Button
+                  variant="outlined"
+                  color="error"
+                  onClick={() => handleUnapprove(detailDialog.item)}
+                  disabled={isUpdating || readOnly}
+                >
+                  Unapprove
+                </Button>
+              )}
+              {!activeOfficerApproval.approved && (
+                <Button
+                  variant="contained"
+                  onClick={async () => {
+                    await handleApprove(detailDialog.item, {
+                      onSuccess: () => setDetailDialog({ open: false, item: null }),
+                    });
+                  }}
+                  disabled={isUpdating || !officerProfileComplete || readOnly || activeOfficerApproval.flagged}
+                >
+                  {isUpdating ? 'Saving…' : 'Approve'}
+                </Button>
+              )}
+            </Stack>
+          )}
+        </DialogActions>
       </Dialog>
     </Box>
   );

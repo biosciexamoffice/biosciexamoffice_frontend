@@ -333,14 +333,14 @@ export default function RegistrationBrowser() {
                       </IconButton>
                     </span>
                   </Tooltip>
-                  <CardActionArea onClick={() => setSelectedCourse({ id: c._id, code: c.code, title: c.title })}>
+                  <CardActionArea onClick={() => setSelectedCourse({ id: c._id, code: c.code, title: c.title.toUpperCase() })}>
                     <CardContent>
                       <Stack direction="row" justifyContent="space-between" alignItems="center">
                         <Typography variant="subtitle1" fontWeight={700}>{c.code}</Typography>
                         <Chip size="small" label={`${c.count} students`} />
                       </Stack>
-                      <Typography variant="body2" color="text.secondary" sx={{ mt: .5 }} noWrap title={c.title}>
-                        {c.title}
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: .5 }} noWrap title={c.title.toUpperCase()}>
+                        {c.title.toUpperCase()}
                       </Typography>
                       <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
                         <Chip size="small" variant="outlined" label={`L${c.level}`} />
@@ -499,8 +499,8 @@ export default function RegistrationBrowser() {
         <DialogTitle>Move {moveContext.mode === 'bulk' ? `${moveContext.regNos.length} students` : 'student'} to another course</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2} sx={{ mt: 1 }}>
-            <Typography variant="body2">
-              <b>From:</b> {selectedCourse?.code} — {selectedCourse?.title}
+            <Typography variant="body2" sx={{ textTransform: 'uppercase' }}>
+              <b>From:</b> {selectedCourse?.code} — {selectedCourse?.title.toUpperCase()}
             </Typography>
             {moveContext.mode === 'single' && (
               <Typography variant="body2">
@@ -518,7 +518,7 @@ export default function RegistrationBrowser() {
               value={moveTarget}
               loading={allCoursesLoading || allCoursesFetching}
               onChange={(_, v) => setMoveTarget(v)}
-              getOptionLabel={(o) => (o ? `${o.code} — ${o.title}` : '')}
+              getOptionLabel={(o) => (o ? `${o.code} — ${o.title.toUpperCase()}` : '')}
               isOptionEqualToValue={(a, b) => a.id === b.id}
               renderInput={(params) => (
                 <TextField

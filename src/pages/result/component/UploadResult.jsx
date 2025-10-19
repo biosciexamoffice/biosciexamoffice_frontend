@@ -30,8 +30,8 @@ function calcEta(loaded, total, startedAt) {
   return `${m}m ${s}s`;
 }
 
-const CSV_SCHEMA = `regNo,level,totalexam,ca,grandtotal,grade,q1,q2,q3,q4,q5,q6,q7,q8
-21/55684/UE,100,40,20,60,B,5,5,5,5,0,0,0,0`;
+const CSV_SCHEMA = `regNo,q1,q2,q3,q4,q5,q6,q7,q8,ca,totalexam,grandTotal
+21/55684/UE,5,5,5,5,0,0,0,0,18,42,60`;
 
 export default function UploadResult() {
   // data you already fetch (we'll use it to hint/validate naming)
@@ -64,16 +64,31 @@ export default function UploadResult() {
   }, [collegesData]);
 
   const [inputs, setInputs] = useState(() => {
-    // persist last used values (nice QoL)
     const saved = localStorage.getItem('upload_form');
-    return saved ? JSON.parse(saved) : {
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        delete parsed.resultType;
+        return {
+          lecturerStaffId: "",
+          session: "",
+          semester: "",
+          date: "",
+          department: "",
+          level: "",
+          ...parsed,
+        };
+      } catch {
+        // fall through to defaults
+      }
+    }
+    return {
       lecturerStaffId: "",
       session: "",
       semester: "",
       date: "",
       department: "",
       level: "",
-      resultType: ""
     };
   });
 
@@ -149,7 +164,7 @@ export default function UploadResult() {
   };
 
   const readyToUpload = useMemo(() => {
-    const required = ['lecturerStaffId', 'session', 'semester', 'date', 'department', 'level', 'resultType'];
+    const required = ['lecturerStaffId', 'session', 'semester', 'date', 'department', 'level'];
     const ok = required.every(k => String(inputs[k] || '').trim());
     return ok && files.length > 0 && !isLoading;
   }, [inputs, files, isLoading]);
@@ -260,7 +275,6 @@ export default function UploadResult() {
           {inputs.department && <Chip size="small" label={`Dept: ${inputs.department}`} />}
           {inputs.level && <Chip size="small" label={`Level: ${inputs.level}`} />}
           {inputs.semester && <Chip size="small" label={`Semester: ${inputs.semester}`} />}
-          {inputs.resultType && <Chip size="small" label={`Type: ${inputs.resultType}`} />}
         </Stack>
 
         {/* Form */}
@@ -277,14 +291,6 @@ export default function UploadResult() {
                 placeholder="Enter your staff ID"
               />
             </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField select label="Result Type" name="resultType" value={inputs.resultType} onChange={handleInputs} required fullWidth>
-                <MenuItem value="" disabled><em>Select Result Type</em></MenuItem>
-                <MenuItem value="CORE">CORE</MenuItem>
-                <MenuItem value="CARRYOVER">CARRYOVER</MenuItem>
-              </TextField>
-            </Grid>
-
             <Grid item xs={12} md={6}>
               <TextField select label="Session" name="session" value={inputs.session} onChange={handleInputs} required fullWidth>
                 <MenuItem value="" disabled><em>Select Session</em></MenuItem>
@@ -426,6 +432,9 @@ export default function UploadResult() {
             }}>
               {CSV_SCHEMA}
             </Box>
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+              Only the regNo, ca, totalexam, optional q1–q8, and optional grandTotal columns are read. Supply CA (0-30) and exam (0-70) to let the backend auto-calc the total, or provide an explicit grandTotal if needed.
+            </Typography>
           </Paper>
 
           {/* Progress */}

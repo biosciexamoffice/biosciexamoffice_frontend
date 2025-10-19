@@ -613,6 +613,8 @@ function StandingManager() {
                   <TableCell>Reg. No</TableCell>
                   <TableCell>Session</TableCell>
                   <TableCell>Semester</TableCell>
+                  <TableCell>Previous Standing</TableCell>
+                  <TableCell>Changed By</TableCell>
                   <TableCell>Effective Date</TableCell>
                   <TableCell>Document</TableCell>
                   <TableCell>Remarks</TableCell>
@@ -648,6 +650,23 @@ function StandingManager() {
                       </TableCell>
                       <TableCell>
                         <Chip label={semesterLabel} size="small" />
+                      </TableCell>
+                      <TableCell>{(record.previousStanding || '—').toUpperCase()}</TableCell>
+                      <TableCell>
+                        {record.changedBy ? (
+                          <Stack spacing={0.5}>
+                            <Typography variant="body2">
+                              {record.changedBy.pfNo || record.changedBy.email || '—'}
+                            </Typography>
+                            {Array.isArray(record.changedBy.roles) && record.changedBy.roles.length > 0 && (
+                              <Typography variant="caption" color="text.secondary">
+                                {record.changedBy.roles.join(', ')}
+                              </Typography>
+                            )}
+                          </Stack>
+                        ) : (
+                          '—'
+                        )}
                       </TableCell>
                       <TableCell>{formatDate(record.effectiveDate)}</TableCell>
                       <TableCell>{renderDocumentCell(record)}</TableCell>

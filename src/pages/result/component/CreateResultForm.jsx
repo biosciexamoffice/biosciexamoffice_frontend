@@ -67,7 +67,6 @@ export default function CreateResultForm() {
     session: "",
     semester: 1,
     level: "",
-    resultType: "CORE",
     // detailed fields
     q1:"", q2:"", q3:"", q4:"", q5:"", q6:"", q7:"", q8:"",
     ca:"",
@@ -140,7 +139,7 @@ export default function CreateResultForm() {
 
   const baseMissing =
     !form.studentRegNo || !selectedCourse?.id || !form.department ||
-    !form.session || !form.level || !form.semester || !form.resultType || !form.lecturerStaffId;
+    !form.session || !form.level || !form.semester || !form.lecturerStaffId;
 
   const missingRequired = simpleMode
     ? baseMissing || form.grandtotal === "" // must have total in simple mode
@@ -159,7 +158,6 @@ export default function CreateResultForm() {
       session: String(form.session).trim(),
       semester: Number(form.semester),
       level: String(form.level),
-      resultType: form.resultType,
       date: new Date().toISOString(),
     };
 
@@ -204,7 +202,6 @@ export default function CreateResultForm() {
       session: "",
       semester: 1,
       level: "",
-      resultType: "CORE",
       q1:"", q2:"", q3:"", q4:"", q5:"", q6:"", q7:"", q8:"",
       ca:"", totalexam:"", grandtotal:"", grade:""
     });
@@ -358,22 +355,6 @@ export default function CreateResultForm() {
               {LEVEL_OPTIONS.map((lvl) => (
                 <MenuItem key={lvl} value={lvl}>{lvl}</MenuItem>
               ))}
-            </TextField>
-          </Grid>
-
-          {/* Result Type (wide) */}
-          <Grid item xs={12} md={6} lg={3}>
-            <TextField
-              select
-              label="Result Type"
-              value={form.resultType}
-              onChange={handleChange("resultType")}
-              required
-              fullWidth
-              sx={{ minWidth: { md: 320 } }}
-            >
-              <MenuItem value="CORE">CORE</MenuItem>
-              <MenuItem value="CARRYOVER">CARRYOVER</MenuItem>
             </TextField>
           </Grid>
 

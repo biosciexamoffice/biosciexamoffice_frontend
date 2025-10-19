@@ -87,6 +87,9 @@ function Student() {
   const user = useSelector(selectCurrentUser);
   const roles = useSelector(selectCurrentRoles);
   const readOnly = useSelector(selectIsReadOnly);
+  const createErrorPayload = createError
+    ? createError.data || { message: createError.error }
+    : null;
 
   const { colleges: scopedColleges, programmes: scopedProgrammes } = useMemo(
     () => filterInstitutionsForUser(colleges, programmes, user, roles),
@@ -229,7 +232,7 @@ function Student() {
           <CreateStudent
             onCreate={handleCreateStudent}
             isLoading={isCreating}
-            error={createError?.data?.message || createError?.data?.error}
+            error={createErrorPayload}
             colleges={scopedColleges}
             programmes={scopedProgrammes}
             isLoadingInstitutions={isLoadingColleges || isLoadingProgrammes}
@@ -239,7 +242,11 @@ function Student() {
         return readOnly ? (
           <Alert severity="warning">Bulk upload is unavailable in read-only mode.</Alert>
         ) : (
-          <StudentUploader />
+          <StudentUploader
+            colleges={scopedColleges}
+            programmes={scopedProgrammes}
+            userDepartmentId={user?.departmentId || null}
+          />
         );
       case "standing":
         return readOnly ? (

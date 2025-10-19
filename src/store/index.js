@@ -143,8 +143,10 @@ export {
   } from './api/approvedCoursesApi'
 
 export {
-    useCreateSessionMutation,
+  useCreateSessionMutation,
   useCloseSessionMutation,
+  useUpdateSessionMutation,
+  useDeleteSessionMutation,
   useGetSessionsQuery,
   useGetSessionByIdQuery,
   useGetCurrentSessionQuery
@@ -188,6 +190,7 @@ export {
 
 export {
   useGetPendingApprovalsQuery,
+  useGetProcessedApprovalsQuery,
 } from './api/approvalApi';
 
 export {

@@ -5,7 +5,7 @@ import {
   Table, TableHead, TableBody, TableRow, TableCell, TableContainer,
   CircularProgress, Alert, Chip, useTheme, Tooltip, TablePagination,
   Divider, IconButton, Toolbar, Backdrop, Skeleton, Stack, Menu, MenuItem as MenuEntry, alpha,
-  Card, CardContent, CardHeader,
+  Card, CardContent, CardHeader, Dialog, DialogTitle, DialogContent, DialogActions,
 } from "@mui/material";
 import BoltIcon from '@mui/icons-material/Bolt';
 import { Info as InfoIcon } from "@mui/icons-material";
@@ -14,9 +14,11 @@ import {
   Refresh as RefreshIcon,
   Search as SearchIcon,
   RestartAlt as RestartAltIcon,
-  TableView as TableViewIcon
+  TableView as TableViewIcon,
+  CheckCircle as CheckCircleIcon,
 } from '@mui/icons-material';
 import LoadingButton from '@mui/lab/LoadingButton';
+import { useSelector } from "react-redux";
 
 // hooks (same slices you already use)
 import { useGetSessionsQuery } from "../../../store/api/sessionApi";
@@ -24,6 +26,12 @@ import { useLazySearchMetricsQuery } from "../../../store/api/academicMetricsApi
 import { useLazyGetAllResultsQuery } from "../../../store/api/resultApi";
 import { useGetApprovedCoursesByCriteriaQuery } from "../../../store/api/approvedCoursesApi";
 import { useLazySearchCourseRegistrationsQuery } from "../../../store/api/courseRegistrationApi";
+import {
+  useUpdateMetricsMutation,
+  selectCurrentRoles,
+  selectIsReadOnly,
+} from "../../../store";
+import { OFFICER_CONFIG } from "../../../constants/officerConfig";
 
 // export utilities (exact same ones ResultComputation uses)
 import { downloadExcel, generatePassFailExcel } from '../../../utills/dowloadResultExcel';
@@ -99,12 +107,6 @@ const TableSkeleton = ({ columns = 12, rows = 5 }) => (
   </Table>
 );
 
-const OFFICER_CONFIG = [
-  { key: 'ceo', label: 'College Exam Officer', approvalField: 'ceoApproval' },
-  { key: 'hod', label: 'Head of Department', approvalField: 'hodApproval' },
-  { key: 'dean', label: 'Dean of College', approvalField: 'deanApproval' },
-];
-
 // Robust course result lookup (by id, then by normalized code)
 const getCourseResult = (student, course) => {
   const results = student?.results || {};
@@ -131,8 +133,16 @@ const normalizeOfficer = (approval = {}) => ({
   flagged: Boolean(approval?.flagged),
   name: approval?.name || '',
   note: approval?.note || '',
+  response: approval?.response || '',
+  responseBy: approval?.responseBy || '',
+  flagClearedAt: approval?.flagClearedAt || null,
   updatedAt: approval?.updatedAt || null,
 });
+
+const OFFICER_STAGE_BY_KEY = OFFICER_CONFIG.reduce((acc, cfg) => {
+  acc[cfg.key] = cfg;
+  return acc;
+}, {});
 
 // ————————————————————————————————————————————————————————————
 export default function QuickCompute() {
@@ -173,6 +183,13 @@ export default function QuickCompute() {
   const [query, setQuery] = useState('');
   const errorRef = useRef(null);
 
+  const roles = useSelector(selectCurrentRoles);
+  const readOnly = useSelector(selectIsReadOnly);
+  const canAuthorNotes = useMemo(
+    () => roles.includes('ADMIN') || roles.includes('EXAM_OFFICER'),
+    [roles]
+  );
+
   const { data: sessions = [] } = useGetSessionsQuery();
   const [fetchTermResults, { data: fetchedTermResults = [], isFetching: isFetchingResults }] = useLazyGetAllResultsQuery();
 
@@ -195,6 +212,17 @@ export default function QuickCompute() {
   const { generatePDF: generateGraduatingListPDF } = useGraduatingListPDF();
   const { generatePDF: generateGraduatingListPrintPDF } = useGraduatingListPrintPDF();
   const { generatePDF: generateMissingScoresPDF } = useMissingScoresPDFGenerator();
+
+  const [updateMetrics, { isLoading: isSavingNote }] = useUpdateMetricsMutation();
+  const [noteDialog, setNoteDialog] = useState({
+    open: false,
+    metricsId: null,
+    stage: null,
+    mode: 'note',
+    originalNote: '',
+    note: '',
+    error: '',
+  });
 
   // ---------- GET (no recomputation) ----------
   const handleGet = async (e) => {
@@ -221,6 +249,85 @@ export default function QuickCompute() {
     setAnchorEl(null);
     setRegSetsByCourseId({});
     setPage(0);
+  };
+
+  const openNoteDialog = (student, stageKey) => {
+    const stageConfig = OFFICER_STAGE_BY_KEY[stageKey];
+    if (!stageConfig) return;
+    const approvalField = stageConfig.approvalField;
+    const existingApproval = approvalField ? student?.[approvalField] : null;
+    const metricsId = student?.metrics?._id;
+    if (!metricsId) return;
+    const originalNote = existingApproval?.note || '';
+    const existingResponse = existingApproval?.response || '';
+    const mode = originalNote ? 'response' : 'note';
+    setNoteDialog({
+      open: true,
+      metricsId,
+      stage: stageKey,
+      mode,
+      originalNote,
+      note: mode === 'note' ? originalNote : existingResponse,
+      error: '',
+    });
+  };
+
+  const closeNoteDialog = () => {
+    setNoteDialog({ open: false, metricsId: null, stage: null, mode: 'note', originalNote: '', note: '', error: '' });
+  };
+
+  const handleNoteChange = (event) => {
+    const { value } = event.target;
+    setNoteDialog((prev) => ({ ...prev, note: value, error: '' }));
+  };
+
+  const handleSaveNote = async () => {
+    if (readOnly) {
+      setNoteDialog((prev) => ({ ...prev, error: 'Notes are disabled while connected in read-only mode.' }));
+      return;
+    }
+
+    const stageConfig = noteDialog.stage ? OFFICER_STAGE_BY_KEY[noteDialog.stage] : null;
+    const noteKey = stageConfig?.noteKey;
+    const responseKey = stageConfig?.responseKey;
+    if (!stageConfig || (!noteKey && !responseKey)) {
+      setNoteDialog((prev) => ({ ...prev, error: 'Unable to determine the approval stage for this note.' }));
+      return;
+    }
+
+    const trimmed = noteDialog.note.trim();
+    if (!trimmed) {
+      setNoteDialog((prev) => ({ ...prev, error: 'Enter a note before saving.' }));
+      return;
+    }
+
+    try {
+      const payload = { metricsId: noteDialog.metricsId };
+      if (noteDialog.mode === 'note') {
+        payload[noteKey] = trimmed;
+      } else if (responseKey) {
+        payload[responseKey] = trimmed;
+      } else if (noteKey) {
+        payload[noteKey] = trimmed;
+      }
+
+      await updateMetrics(payload).unwrap();
+      closeNoteDialog();
+      if (formData.session && formData.semester && formData.level) {
+        try {
+          await searchMetrics({
+            session: formData.session,
+            semester: formData.semester,
+            level: formData.level,
+          }).unwrap();
+        } catch {
+          // ignore refresh errors
+        }
+      }
+    } catch (err) {
+      const message = err?.data?.message || 'Failed to save note. Please try again.';
+      setNoteDialog((prev) => ({ ...prev, error: message }));
+    }
   };
 
   // ---------- Build term results & courses list ----------
@@ -932,11 +1039,14 @@ export default function QuickCompute() {
                           <TableCell sx={{ textAlign: 'left' }}>{student.remarks}</TableCell>
                           {OFFICER_CONFIG.map((officer) => {
                             const approval = officerApprovals[officer.key] || {};
+                            const metricsId = student.metrics?._id;
                             const statusLabel = approval.approved ? 'Approved' : 'Pending';
                             const statusColor = approval.approved ? 'success' : 'default';
                             const updatedAtText = approval.updatedAt
                               ? new Date(approval.updatedAt).toLocaleString()
                               : null;
+                            const allowNoteForExamOfficer =
+                              canAuthorNotes && officer.key === 'ceo' && approval.flagged && Boolean(metricsId);
                             return (
                               <TableCell key={`${student.id}-${officer.key}`} sx={{ minWidth: 200 }}>
                                 <Stack spacing={0.5} alignItems="flex-start">
@@ -959,10 +1069,33 @@ export default function QuickCompute() {
                                       Note: {approval.note}
                                     </Typography>
                                   )}
+                                  {approval.response && (
+                                    <Stack direction="row" spacing={0.5} alignItems="center">
+                                      <CheckCircleIcon color="success" sx={{ fontSize: 16 }} />
+                                      <Typography variant="caption" color="text.secondary">
+                                        Response: {approval.response}
+                                      </Typography>
+                                    </Stack>
+                                  )}
+                                  {approval.flagClearedAt && (
+                                    <Typography variant="caption" color="text.secondary">
+                                      Cleared {new Date(approval.flagClearedAt).toLocaleString()}
+                                    </Typography>
+                                  )}
                                   {updatedAtText && (
                                     <Typography variant="caption" color="text.secondary">
                                       Updated {updatedAtText}
                                     </Typography>
+                                  )}
+                                  {allowNoteForExamOfficer && (
+                                    <Button
+                                      size="small"
+                                      variant="outlined"
+                                      onClick={() => openNoteDialog(student, officer.key)}
+                                      disabled={readOnly || isSavingNote}
+                                    >
+                                      {approval.note ? 'Respond' : 'Add Note'}
+                                    </Button>
                                   )}
                                 </Stack>
                               </TableCell>
@@ -990,6 +1123,53 @@ export default function QuickCompute() {
           </Box>
         </Paper>
       )}
+
+      <Dialog
+        open={noteDialog.open}
+        onClose={closeNoteDialog}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>{noteDialog.mode === 'note' ? 'Add Flag Note' : 'Respond to Flag'}</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+          <Typography variant="body2" color="text.secondary">
+            {noteDialog.mode === 'note'
+              ? 'Enter a note explaining why this record is being flagged.'
+              : 'Add your response. The original flag note is shown below for reference.'}
+          </Typography>
+          {noteDialog.mode === 'response' && (
+            <Alert severity="info" variant="outlined" sx={{ whiteSpace: 'pre-wrap' }}>
+              <Typography variant="subtitle2" gutterBottom>Flag note</Typography>
+              <Typography variant="body2" color="text.secondary">
+                {noteDialog.originalNote || 'No flag note provided.'}
+              </Typography>
+            </Alert>
+          )}
+          {noteDialog.error && (
+            <Alert severity="error" variant="outlined">
+              {noteDialog.error}
+            </Alert>
+          )}
+          <TextField
+            label={noteDialog.mode === 'note' ? 'Flag note' : 'Response'}
+            multiline
+            minRows={3}
+            value={noteDialog.note}
+            onChange={handleNoteChange}
+            autoFocus
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeNoteDialog} disabled={isSavingNote}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleSaveNote}
+            disabled={isSavingNote}
+          >
+            {isSavingNote ? 'Saving…' : noteDialog.mode === 'note' ? 'Save Note' : 'Respond'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Global backdrop for long exports */}
       <Backdrop open={busy} sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>

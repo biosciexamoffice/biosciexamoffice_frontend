@@ -21,6 +21,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogContentText,
+  DialogActions,
   Tabs,
   Tab,
   Chip,
@@ -31,6 +32,8 @@ import { format } from 'date-fns';
 import {
   useCreateSessionMutation,
   useCloseSessionMutation,
+  useUpdateSessionMutation,
+  useDeleteSessionMutation,
   useGetAllLecturersQuery,
   useGetSessionsQuery,
 } from '../../store';
@@ -54,6 +57,12 @@ const steps = [
   'Finalizing session setup'
 ];
 
+const toDateInputValue = (value) => {
+  if (!value) return '';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : format(date, 'yyyy-MM-dd');
+};
+
 const SessionManager = () => {
   const [formData, setFormData] = useState(initialForm);
   const [errors, setErrors] = useState({});
@@ -65,11 +74,17 @@ const SessionManager = () => {
   const [progressDialogOpen, setProgressDialogOpen] = useState(false);
   const [progressMessage, setProgressMessage] = useState('');
   const [activeTab, setActiveTab] = useState(0);
+  const [editingSession, setEditingSession] = useState(null);
+  const [deleteDialog, setDeleteDialog] = useState({ open: false, session: null });
   
   const [createSession, { isLoading }] = useCreateSessionMutation();
   const [closeSession, { isLoading: isClosingSession }] = useCloseSessionMutation();
+  const [updateSession, { isLoading: isUpdatingSession }] = useUpdateSessionMutation();
+  const [deleteSession, { isLoading: isDeletingSession }] = useDeleteSessionMutation();
   const { data: lecturersData = [], isLoading: isLecturersLoading } = useGetAllLecturersQuery();
   const { data: sessions = [], isLoading: isSessionsLoading, refetch: refetchSessions } = useGetSessionsQuery();
+  const isEditing = Boolean(editingSession);
+  const submitLoading = isEditing ? isUpdatingSession : isLoading;
 
   useEffect(() => {
     if (lecturersData.length > 0) {
@@ -175,18 +190,55 @@ const SessionManager = () => {
       setErrors(validationErrors);
       return;
     }
-    
+
     setErrors({});
+
+    const basePayload = {
+      sessionTitle: formData.sessionTitle,
+      startDate: formData.startDate,
+      dean: formData.dean,
+      hod: formData.hod,
+      eo: formData.eo,
+    };
+
+    if (isEditing && editingSession) {
+      try {
+        const response = await updateSession({
+          id: editingSession._id || editingSession.id,
+          ...basePayload,
+          endDate: formData.endDate ? formData.endDate : null,
+        }).unwrap();
+
+        if (!response.success) {
+          throw new Error(response.message || 'Failed to update session');
+        }
+
+        setSnack({
+          open: true,
+          message: response.message || 'Session updated successfully!',
+          severity: 'success',
+        });
+        setCreatedSession(response.session);
+        setEditingSession(null);
+        setFormData(initialForm);
+        setViewMode('details');
+        refetchSessions();
+      } catch (error) {
+        setSnack({
+          open: true,
+          message: error.data?.message || error.message || 'Error updating session',
+          severity: 'error',
+        });
+      }
+      return;
+    }
+
     try {
       await simulateProgress();
-      
+
       const response = await createSession({
-        sessionTitle: formData.sessionTitle,
-        startDate: formData.startDate,
-        endDate: formData.endDate || undefined,
-        dean: formData.dean,
-        hod: formData.hod,
-        eo: formData.eo
+        ...basePayload,
+        ...(formData.endDate ? { endDate: formData.endDate } : {}),
       }).unwrap();
 
       if (response.success) {
@@ -194,7 +246,7 @@ const SessionManager = () => {
         setSnack({
           open: true,
           message: response.message || 'Session created successfully!',
-          severity: 'success'
+          severity: 'success',
         });
         setViewMode('details');
         refetchSessions();
@@ -205,7 +257,7 @@ const SessionManager = () => {
       setSnack({
         open: true,
         message: error.data?.message || error.message || 'Error creating session',
-        severity: 'error'
+        severity: 'error',
       });
     } finally {
       setActiveStep(-1);
@@ -247,11 +299,84 @@ const SessionManager = () => {
     setErrors({});
     setCreatedSession(null);
     setViewMode('form');
+    setEditingSession(null);
   };
 
   const handleTabChange = (event, newValue) => {
     setActiveTab(newValue);
+    if (newValue !== 0 && editingSession) {
+      setEditingSession(null);
+      setFormData(initialForm);
+      setErrors({});
+      setViewMode('form');
+    }
   };
+
+  const handleCancelEdit = () => {
+    if (editingSession) {
+      setCreatedSession(editingSession);
+      setViewMode('details');
+    }
+    setEditingSession(null);
+    setFormData(initialForm);
+    setErrors({});
+  };
+
+  const beginEditSession = (session) => {
+    if (!session) return;
+    setEditingSession(session);
+    setFormData({
+      sessionTitle: session.sessionTitle || '',
+      startDate: toDateInputValue(session.startDate),
+      endDate: toDateInputValue(session.endDate),
+      dean: session.principalOfficers?.dean?.pfNo || '',
+      hod: session.principalOfficers?.hod?.pfNo || '',
+      eo: session.principalOfficers?.examOfficer?.pfNo || '',
+    });
+    setErrors({});
+    setViewMode('form');
+    setActiveTab(0);
+    setCreatedSession(session);
+  };
+
+  const requestDeleteSession = (session) => {
+    if (!session) return;
+    setDeleteDialog({ open: true, session });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteDialog.session) return;
+    try {
+      const response = await deleteSession({
+        id: deleteDialog.session._id || deleteDialog.session.id,
+      }).unwrap();
+
+      if (!response.success) {
+        throw new Error(response.message || 'Failed to delete session');
+      }
+
+      setSnack({
+        open: true,
+        message: response.message || 'Session deleted successfully.',
+        severity: 'success',
+      });
+      setDeleteDialog({ open: false, session: null });
+      setCreatedSession(null);
+      setEditingSession(null);
+      setFormData(initialForm);
+      setViewMode('form');
+      refetchSessions();
+    } catch (error) {
+      setSnack({
+        open: true,
+        message: error.data?.message || error.message || 'Error deleting session',
+        severity: 'error',
+      });
+      setDeleteDialog({ open: false, session: null });
+    }
+  };
+
+  const handleCloseDeleteDialog = () => setDeleteDialog({ open: false, session: null });
 
   return (
     <Box>
@@ -387,11 +512,18 @@ const SessionManager = () => {
           {viewMode === 'form' ? (
             <>
               <Typography variant="h5" gutterBottom>
-                Create New Academic Session
+                {isEditing ? 'Edit Academic Session' : 'Create New Academic Session'}
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Create a new academic year and assign the principal officers. Student promotion runs when you end the active session.
+                {isEditing
+                  ? 'Update the session details and assigned officers. Changes take effect immediately.'
+                  : 'Create a new academic year and assign the principal officers. Student promotion runs when you end the active session.'}
               </Typography>
+              {isEditing && editingSession && (
+                <Alert severity="info" sx={{ mb: 3 }}>
+                  Editing <strong>{editingSession.sessionTitle}</strong>
+                </Alert>
+              )}
               
               <form onSubmit={handleSubmit}>
                 <Grid container spacing={3}>
@@ -523,19 +655,25 @@ const SessionManager = () => {
                       <Button
                         type="button"
                         variant="outlined"
-                        onClick={handleReset}
-                        disabled={isLoading}
+                        onClick={isEditing ? handleCancelEdit : handleReset}
+                        disabled={submitLoading}
                       >
-                        Clear Form
+                        {isEditing ? 'Cancel Edit' : 'Clear Form'}
                       </Button>
                       <LoadingButton
                         type="submit"
                         variant="contained"
                         color="primary"
-                        loading={isLoading}
+                        loading={submitLoading}
                         sx={{ minWidth: 150 }}
                       >
-                        {isLoading ? 'Creating...' : 'Create Session'}
+                        {submitLoading
+                          ? isEditing
+                            ? 'Updating...'
+                            : 'Creating...'
+                          : isEditing
+                            ? 'Update Session'
+                            : 'Create Session'}
                       </LoadingButton>
                     </Stack>
                   </Grid>
@@ -545,10 +683,17 @@ const SessionManager = () => {
           ) : (
             <SessionDetails
               session={createdSession}
-              onBack={() => setViewMode('form')}
+              onBack={() => {
+                setViewMode('form');
+                setCreatedSession(null);
+                setEditingSession(null);
+              }}
               onCreateAnother={handleReset}
               onCloseSession={handleCloseSession}
+              onEditSession={beginEditSession}
+              onDeleteSession={requestDeleteSession}
               isClosing={isClosingSession}
+              isDeleting={isDeletingSession}
             />
           )}
         </Paper>
@@ -558,9 +703,15 @@ const SessionManager = () => {
           isLoading={isSessionsLoading}
           onSessionSelect={(session) => {
             setCreatedSession(session);
+            setEditingSession(null);
+            setFormData(initialForm);
+            setErrors({});
             setViewMode('details');
             setActiveTab(0);
           }}
+          onEditSession={beginEditSession}
+          onDeleteSession={requestDeleteSession}
+          isDeleting={isDeletingSession}
         />
       )}
 
@@ -579,6 +730,27 @@ const SessionManager = () => {
           {snack.message}
         </Alert>
       </Snackbar>
+
+      <Dialog open={deleteDialog.open} onClose={handleCloseDeleteDialog}>
+        <DialogTitle>Delete Session</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to delete{' '}
+            <strong>{deleteDialog.session?.sessionTitle || 'this session'}</strong>? This action cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDeleteDialog} disabled={isDeletingSession}>Cancel</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={handleConfirmDelete}
+            disabled={isDeletingSession}
+          >
+            {isDeletingSession ? 'Deleting…' : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={progressDialogOpen} maxWidth="sm" fullWidth>
         <DialogTitle>Creating Session</DialogTitle>
