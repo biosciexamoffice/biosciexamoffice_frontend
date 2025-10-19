@@ -71,6 +71,41 @@ const OFFICER_ORDER = OFFICER_CONFIG.reduce((acc, cfg, index) => {
   acc[cfg.key] = index;
   return acc;
 }, {});
+const METRIC_GROUPS = [
+  {
+    key: 'current',
+    title: 'Current Metrics',
+    sourceKey: 'currentMetrics',
+    fields: [
+      { key: 'TCC', label: 'TCC' },
+      { key: 'TCE', label: 'TCE' },
+      { key: 'TPE', label: 'TPE' },
+      { key: 'GPA', label: 'GPA', decimals: 2, isScore: true },
+    ],
+  },
+  {
+    key: 'previous',
+    title: 'Previous Metrics',
+    sourceKey: 'previousMetrics',
+    fields: [
+      { key: 'CCC', label: 'CCC' },
+      { key: 'CCE', label: 'CCE' },
+      { key: 'CPE', label: 'CPE' },
+      { key: 'CGPA', label: 'CGPA', decimals: 2, isScore: true },
+    ],
+  },
+  {
+    key: 'cumulative',
+    title: 'Cumulative Metrics',
+    sourceKey: 'cumulative',
+    fields: [
+      { key: 'CCC', label: 'CCC' },
+      { key: 'CCE', label: 'CCE' },
+      { key: 'CPE', label: 'CPE' },
+      { key: 'CGPA', label: 'CGPA', decimals: 2, isScore: true },
+    ],
+  },
+];
 
 const buildOfficerDefaults = (user) => ({
   title: user?.title || '',
@@ -638,6 +673,18 @@ const ApprovalPortal = () => {
     const page = semesterPages[semesterKey] || 0;
     const paginatedItems = items.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
     const totalPages = Math.ceil(items.length / rowsPerPage);
+    const formatMetricValue = (value, decimals = 0) => {
+      const numeric = Number(value ?? 0);
+      if (!Number.isFinite(numeric)) {
+        return decimals ? '0.00' : 0;
+      }
+      return decimals ? numeric.toFixed(decimals) : numeric;
+    };
+    const resolveScoreChipColor = (value) => {
+      if (value >= 3.5) return 'success';
+      if (value < 1) return 'error';
+      return 'default';
+    };
 
     if (isTabletDown) {
       return (
@@ -646,16 +693,20 @@ const ApprovalPortal = () => {
             {paginatedItems.map((item) => {
               const regNo = item.student?.regNo || '—';
               const fullName = item.student?.fullName || '—';
-              const currentTCE = Number(item.currentMetrics?.TCE || 0);
-              const currentGPAValue = Number(item.currentMetrics?.GPA || 0);
-              const currentGPA = currentGPAValue.toFixed(2);
-              const cgpaValue = Number(item.cumulative?.CGPA || 0);
-              const cgpa = cgpaValue.toFixed(2);
+              const currentMetrics = item.currentMetrics || {};
+              const previousMetrics = item.previousMetrics || {};
+              const cumulativeMetrics = item.cumulative || {};
+              const metricsByGroup = {
+                current: currentMetrics,
+                previous: previousMetrics,
+                cumulative: cumulativeMetrics,
+              };
+              const cgpaValue = Number(cumulativeMetrics.CGPA || 0);
+              const cgpaDisplay = formatMetricValue(cumulativeMetrics.CGPA, 2);
               const highlightZero = (value) => Number(value) === 0;
               const approvalsMap = item.approvals || {};
               const approvalEntry = approvalsMap[officer.key] || {};
               const flaggedStages = OFFICER_CONFIG.filter((cfg) => approvalsMap[cfg.key]?.flagged);
-              const primaryFlag = flaggedStages[0] || null;
               const isFlagged = Boolean(approvalEntry.flagged);
               const isApproved = Boolean(approvalEntry.approved);
               const responseLogged = Boolean((approvalEntry.response || '').trim());
@@ -682,31 +733,47 @@ const ApprovalPortal = () => {
                         <Typography variant="subtitle1" fontWeight={600}>{regNo}</Typography>
                         <Chip
                           size="small"
-                          color={cgpaValue >= 3.5 ? 'success' : cgpaValue < 1 ? 'error' : 'primary'}
-                          label={`CGPA ${cgpa}`}
+                          color={resolveScoreChipColor(cgpaValue)}
+                          label={`CGPA ${cgpaDisplay}`}
+                          sx={highlightZero(cgpaValue) ? zeroBlinkSx : undefined}
                         />
                       </Stack>
                       <Typography variant="body2" color="text.secondary">
                         {fullName}
                       </Typography>
-                      <Stack direction="row" spacing={1} flexWrap="wrap">
-                        <Chip
-                          size="small"
-                          variant="outlined"
-                          label={`TCE ${currentTCE}`}
-                          sx={highlightZero(currentTCE) ? zeroBlinkSx : undefined}
-                        />
-                        <Chip
-                          size="small"
-                          variant="outlined"
-                          color={currentGPAValue >= 3.5 ? 'success' : currentGPAValue < 1 ? 'error' : 'default'}
-                          label={`GPA ${currentGPA}`}
-                          sx={highlightZero(currentGPAValue) ? zeroBlinkSx : undefined}
-                        />
-                        <Typography variant="caption" color="text.secondary">
-                          {item.department || '—'}
-                        </Typography>
+                      <Stack spacing={1} sx={{ width: '100%' }}>
+                        {METRIC_GROUPS.map((group) => {
+                          const groupMetrics = metricsByGroup[group.key] || {};
+                          return (
+                            <Box key={group.key}>
+                              <Typography variant="caption" color="text.secondary">
+                                {group.title}
+                              </Typography>
+                              <Stack direction="row" spacing={1} flexWrap="wrap">
+                                {group.fields.map((field) => {
+                                  const rawValue = groupMetrics[field.key];
+                                  const numericValue = Number(rawValue ?? 0);
+                                  const displayValue = formatMetricValue(rawValue, field.decimals || 0);
+                                  const chipColor = field.isScore ? resolveScoreChipColor(numericValue) : 'default';
+                                  return (
+                                    <Chip
+                                      key={`${group.key}-${field.key}`}
+                                      size="small"
+                                      variant="outlined"
+                                      color={chipColor}
+                                      label={`${field.label} ${displayValue}`}
+                                      sx={highlightZero(numericValue) ? zeroBlinkSx : undefined}
+                                    />
+                                  );
+                                })}
+                              </Stack>
+                            </Box>
+                          );
+                        })}
                       </Stack>
+                      <Typography variant="caption" color="text.secondary">
+                        {item.department || '—'}
+                      </Typography>
                       <Stack direction="row" spacing={1} flexWrap="wrap">
                         {isApproved && (
                           <Chip label="Approved" size="small" color="success" />
@@ -834,7 +901,7 @@ const ApprovalPortal = () => {
               rowsPerPage={rowsPerPage}
               rowsPerPageOptions={ROWS_PER_PAGE_OPTIONS}
               page={page}
-              onPageChange={(_, newPage) => handleDepartmentPageChange(departmentKey, newPage)}
+              onPageChange={(_, newPage) => handleSemesterPageChange(semesterKey, newPage)}
               onRowsPerPageChange={handleRowsPerPageChange}
             />
           )}
@@ -849,9 +916,9 @@ const ApprovalPortal = () => {
             <TableRow>
               <TableCell>Reg No</TableCell>
               <TableCell>Name</TableCell>
-              <TableCell align="center">Current TCE</TableCell>
-              <TableCell align="center">Current GPA</TableCell>
-              <TableCell align="center">CGPA</TableCell>
+              <TableCell align="center">Current Metrics</TableCell>
+              <TableCell align="center">Previous Metrics</TableCell>
+              <TableCell align="center">Cumulative Metrics</TableCell>
               <TableCell align="right">Actions</TableCell>
             </TableRow>
           </TableHead>
@@ -876,6 +943,15 @@ const ApprovalPortal = () => {
               const downstreamFlag = flaggedStages.find(
                 (stage) => stage.key !== officer.key && (roles.includes('ADMIN') || isDownstreamOf(officer.key, stage.key))
               );
+              const currentMetrics = item.currentMetrics || {};
+              const previousMetrics = item.previousMetrics || {};
+              const cumulativeMetrics = item.cumulative || {};
+              const metricsByGroup = {
+                current: currentMetrics,
+                previous: previousMetrics,
+                cumulative: cumulativeMetrics,
+              };
+              const highlightZero = (value) => Number(value) === 0;
 
               return (
                 <TableRow
@@ -886,9 +962,43 @@ const ApprovalPortal = () => {
                 >
                   <TableCell>{item.student?.regNo || '—'}</TableCell>
                   <TableCell>{item.student?.fullName || '—'}</TableCell>
-                  <TableCell align="center">{Number(item.currentMetrics?.TCE || 0)}</TableCell>
-                  <TableCell align="center">{Number(item.currentMetrics?.GPA || 0).toFixed(2)}</TableCell>
-                  <TableCell align="center">{Number(item.cumulative?.CGPA || 0).toFixed(2)}</TableCell>
+                  {METRIC_GROUPS.map((group) => {
+                    const groupMetrics = metricsByGroup[group.key] || {};
+                    return (
+                      <TableCell key={`${item.metricsId}-${group.key}`} align="center">
+                        <Stack spacing={0.25} alignItems="center">
+                          {group.fields.map((field) => {
+                            const rawValue = groupMetrics[field.key];
+                            const numericValue = Number(rawValue ?? 0);
+                            const displayValue = formatMetricValue(rawValue, field.decimals || 0);
+                            const typographySx = [];
+                            if (highlightZero(numericValue)) {
+                              typographySx.push(zeroBlinkSx);
+                            } else if (field.isScore) {
+                              const scoreColorKey = resolveScoreChipColor(numericValue);
+                              if (scoreColorKey === 'success' || scoreColorKey === 'error') {
+                                typographySx.push({
+                                  color: theme.palette[scoreColorKey].main,
+                                  fontWeight: 600,
+                                });
+                              } else {
+                                typographySx.push({ fontWeight: 600 });
+                              }
+                            }
+                            return (
+                              <Typography
+                                key={`${group.key}-${field.key}`}
+                                variant="body2"
+                                sx={typographySx.length ? typographySx : undefined}
+                              >
+                                {field.label}: {displayValue}
+                              </Typography>
+                            );
+                          })}
+                        </Stack>
+                      </TableCell>
+                    );
+                  })}
                   <TableCell align="right">
                     <Stack direction="row" spacing={1} justifyContent="flex-end">
                       <Button
