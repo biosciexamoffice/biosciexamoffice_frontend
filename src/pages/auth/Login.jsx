@@ -19,6 +19,7 @@ import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import Divider from '@mui/material/Divider';
 import GoogleIcon from '@mui/icons-material/Google';
+import logoImage from '../../assets/logo.jpeg';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -141,7 +142,7 @@ const Login = () => {
           >
             <Box
               component="img"
-              src="/joseph_sarwuan_tarka_university.jpeg"
+              src={logoImage}
               alt="JOSEPH SARWUAN TARKA UNIVERSITY logo"
               sx={{
                 width: isMobile ? 72 : 84,

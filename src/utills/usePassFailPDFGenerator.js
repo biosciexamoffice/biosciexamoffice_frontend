@@ -1,16 +1,9 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import loadLogoBase64 from './loadLogoBase64.js';
 
 const usePassFailPDFGenerator = () => {
-  const loadImageAsBase64 = async (url) => {
-    const response = await fetch(url);
-    const blob = await response.blob();
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.readAsDataURL(blob);
-    });
-  };
+  let cachedLogo = null;
 
   // Format: FIRSTNAME, OTHER NAMES
   const formatNameFirstComma = (fullName = '') => {
@@ -27,12 +20,29 @@ const usePassFailPDFGenerator = () => {
 
     const getCGPA = (s) => Number(s?.metrics?.CGPA ?? 0);
     const isProbation = (s) => getCGPA(s) < 1.0; // Probation threshold
+    const deriveRemarks = (student) => {
+      const initial = String(student?.remarks || '').trim();
+      if (initial) return initial;
+      const failed = Array.isArray(student?.failedCourseDetails)
+        ? student.failedCourseDetails.map((d) => d?.code).filter(Boolean)
+        : [];
+      if (failed.length) {
+        return `repeat ${failed.join(' ')}`;
+      }
+      return 'pass';
+    };
+
+    const studentsWithRemarks = students.map((student) => ({
+      ...student,
+      remarks: deriveRemarks(student),
+    }));
+
     const isPass = (s) => (s?.remarks || '').toLowerCase() === 'pass';
     const isFail = (s) => (s?.remarks || '').toLowerCase().startsWith('repeat');
 
-    const passed = students.filter(isPass);
-    const failed = students.filter(isFail);
-    const probation = students.filter(isProbation);
+    const passed = studentsWithRemarks.filter(isPass);
+    const failed = studentsWithRemarks.filter(isFail);
+    const probation = studentsWithRemarks.filter(isProbation);
 
     // Withdrawal list — plug rules here if/when you have them
     const withdrawal = Array.isArray(data?.withdrawalStudents) ? [...data.withdrawalStudents] : [];
@@ -50,7 +60,10 @@ const usePassFailPDFGenerator = () => {
     withdrawal.sort(byReg);
     nonRegistration.sort(byReg);
 
-    const logoBase64 = await loadImageAsBase64('/uam.jpeg');
+    if (!cachedLogo) {
+      cachedLogo = await loadLogoBase64('/uam.jpeg');
+    }
+    const logoBase64 = cachedLogo;
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'legal' });
 
     const pageWidth = doc.internal.pageSize.getWidth();

@@ -1,19 +1,15 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import loadLogoBase64 from './loadLogoBase64.js';
 
 const useGradeSummaryPDFGenerator = () => {
-  const loadImageAsBase64 = async (url) => {
-    const response = await fetch(url);
-    const blob = await response.blob();
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.readAsDataURL(blob);
-    });
-  };
+  let cachedLogo = null;
 
   const generatePDF = async (gradeSummary, formData, headerInfo) => {
-    const logoBase64 = await loadImageAsBase64('/uam.jpeg');
+    if (!cachedLogo) {
+      cachedLogo = await loadLogoBase64('/uam.jpeg');
+    }
+    const logoBase64 = cachedLogo;
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'legal' });
 
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -50,9 +46,9 @@ const useGradeSummaryPDFGenerator = () => {
 
       // Pairs (label, value) for both sides
       const leftPairs = [
-        ['College:',    headerInfo?.subject    || 'College Not Provided'],
-        ['Department:', headerInfo?.department || 'Department Not Provided'],
-        ['Programme:',  headerInfo?.programme  || 'Programme Not Provided'],
+        ['College:',    headerInfo?.college    || headerInfo?.subject || formData?.college || 'College Not Provided'],
+        ['Department:', headerInfo?.department || formData?.department || 'Department Not Provided'],
+        ['Programme:',  headerInfo?.programme  || formData?.programme  || 'Programme Not Provided'],
       ];
       const rightPairs = [
         ['Level:',    String(formData.level ?? '')],

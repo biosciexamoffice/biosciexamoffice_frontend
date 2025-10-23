@@ -1,10 +1,10 @@
 // useResultPDFGenerator.js
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { useTheme } from '@mui/material';
+import loadLogoBase64 from './loadLogoBase64.js';
 
 const useResultPDFGenerator = () => {
-  const theme = useTheme();
+  const watermarkDefault = 'DRAFT';
 
   // ——— helpers
   const normalizeRegNo = (s) => (s ?? '').toString().trim().toUpperCase();
@@ -42,15 +42,7 @@ const useResultPDFGenerator = () => {
     return 'F';
   };
 
-  const loadImageAsBase64 = async (url) => {
-    const response = await fetch(url);
-    const blob = await response.blob();
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.readAsDataURL(blob);
-    });
-  };
+  let cachedLogo = null;
 
   const pad2 = (n) => String(Number.isFinite(+n) ? Math.round(+n) : n).padStart(2, '0');
 
@@ -58,7 +50,10 @@ const useResultPDFGenerator = () => {
   const cleanCourseCode = (code = '') => code.replace(/^(?:C-|B-)/i, '').trim();
 
   const generatePDF = async (data, formData, courses, regSetsByCourseId = {}) => {
-    const logoBase64 = await loadImageAsBase64('/uam.jpeg');
+    if (!cachedLogo) {
+      cachedLogo = await loadLogoBase64('/uam.jpeg');
+    }
+    const logoBase64 = cachedLogo;
     const { regularCourses = [], carryOverCourses = [] } = courses || {};
 
     // Sort students by registration number, ignoring UE/DE suffixes
@@ -179,7 +174,7 @@ const useResultPDFGenerator = () => {
 
       const leftFooterX = leftMargin;
       // Shift the right-hand footer block ("Head of Dept" and "Dean") a bit left
-      const rightFooterX = (pageWidth / 2 + 105) - 10; // moved 10mm left; adjust if needed
+      const rightFooterX = (pageWidth / 2 + 60); // shift block closer to center while retaining right alignment
 
       doc.text(`Dept. Exam. Officer: ${data?.deptExamOfficer || 'MR. I. Y. JOEL'}`, leftFooterX, footerStartY);
       doc.text(`College Exam. Officer: ${data?.collegeExamOfficer || 'MR. O. A. OJOBO'}`, leftFooterX, footerStartY + footerGap);
@@ -192,7 +187,7 @@ const useResultPDFGenerator = () => {
 
     // ——— row builder with "00F when registered but no result" for BOTH regular & carry-over courses
     const prepareTableData = () => {
-      return sortedStudents.map((student, index) => {
+      const rows = sortedStudents.map((student, index) => {
         const regUpper = normalizeRegNo(student.regNo);
 
         // Carry-over label chunks: include real results; if registered but no score => 00F
@@ -272,6 +267,7 @@ const useResultPDFGenerator = () => {
           student.remarks || 'Pass'
         ];
       });
+      return rows;
     };
 
     // ——— headers (unchanged layout)

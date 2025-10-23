@@ -1,8 +1,19 @@
 import { fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import { logout } from '../features/authSlice';
 
-// Default to backend's configured port (see server/.env -> PORT)
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:10000/api';
+const resolveApiBaseUrl = () => {
+  if (typeof window !== 'undefined') {
+    if (window.__ELECTRON_API_BASE) {
+      return window.__ELECTRON_API_BASE;
+    }
+    if (window.__ELECTRON_DESKTOP__?.apiBase) {
+      return window.__ELECTRON_DESKTOP__.apiBase;
+    }
+  }
+  return import.meta.env.VITE_API_URL || 'http://localhost:10000/api';
+};
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 const rawBaseQuery = fetchBaseQuery({
   baseUrl: API_BASE_URL,

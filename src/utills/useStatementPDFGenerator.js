@@ -1,19 +1,46 @@
 // src/utils/useStatementPDFGenerator.js
+import { useCallback, useRef } from 'react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { useTheme } from '@mui/material';
+import { useLazyGetComprehensiveResultsQuery } from '../store';
+import loadLogoBase64 from './loadLogoBase64.js';
 
 const useStatementPDFGenerator = () => {
   const theme = useTheme();
+  const [fetchComprehensive] = useLazyGetComprehensiveResultsQuery();
+  const metaCacheRef = useRef(new Map());
 
   const loadImageAsBase64 = async (url) => {
-    const res = await fetch(url);
-    const blob = await res.blob();
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.readAsDataURL(blob);
-    });
+    if (!url) return null;
+
+    try {
+      const resolved = (() => {
+        if (typeof window === 'undefined') return url;
+        try {
+          return new URL(url, window.location.origin).toString();
+        } catch {
+          return url;
+        }
+      })();
+
+      const res = await fetch(resolved, { cache: 'force-cache' });
+      if (!res.ok) {
+        throw new Error(`Failed to fetch logo (${res.status})`);
+      }
+      const blob = await res.blob();
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch (error) {
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('Statement PDF logo fetch failed, falling back to bundled asset:', error);
+      }
+      return loadLogoBase64();
+    }
   };
 
   const semesterText = (s) => (Number(s) === 1 ? 'FIRST' : 'SECOND');
@@ -248,6 +275,47 @@ const useStatementPDFGenerator = () => {
     doc.text(`${pageNo}`, w / 2, h - (MARGIN - 2), { align: 'center' });
   };
 
+  const resolveInstitutionHeader = useCallback(async (rawHeader = {}) => {
+    const hasDepartment = Boolean(rawHeader.department);
+    const hasCollege = Boolean(rawHeader.college);
+    const hasProgramme = Boolean(rawHeader.programme);
+
+    if (hasDepartment && hasCollege && hasProgramme) {
+      return rawHeader;
+    }
+
+    const { session, semester, level } = rawHeader || {};
+    if (!session || !semester || !level) {
+      return rawHeader;
+    }
+
+    const cacheKey = `${session}::${semester}::${level}`;
+    if (metaCacheRef.current.has(cacheKey)) {
+      return { ...rawHeader, ...metaCacheRef.current.get(cacheKey) };
+    }
+
+    try {
+      const result = await fetchComprehensive({
+        session,
+        semester,
+        level,
+      });
+      const payload = result?.data || {};
+      const meta = payload.metadata || {};
+      const resolved = {
+        college: rawHeader.college || meta.college || payload.college || null,
+        department: rawHeader.department || meta.department || payload.department || null,
+        programme: rawHeader.programme || meta.programme || payload.programme || null,
+      };
+      metaCacheRef.current.set(cacheKey, resolved);
+      return { ...rawHeader, ...resolved };
+    } catch (error) {
+      console.error('Failed to resolve institution metadata for Statement PDF:', error);
+      metaCacheRef.current.set(cacheKey, {});
+      return rawHeader;
+    }
+  }, [fetchComprehensive]);
+
   /**
    * Generate a PDF for ONE or MANY students.
    * @param {Object} header See shape in your original hook
@@ -255,7 +323,10 @@ const useStatementPDFGenerator = () => {
    * @param {Object} options { filename }
    */
   const generateStatementPDF = async (header, records, options = {}) => {
-    const logoBase64 = header.logoUrl ? await loadImageAsBase64(header.logoUrl) : null;
+    const enrichedHeader = await resolveInstitutionHeader(header || {});
+    const logoBase64 = enrichedHeader.logoUrl
+      ? await loadImageAsBase64(enrichedHeader.logoUrl)
+      : await loadLogoBase64();
     const list = Array.isArray(records) ? records : [records];
 
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -267,8 +338,8 @@ const useStatementPDFGenerator = () => {
       drawOuterBorder(doc);
 
       // Header + sections
-      drawHeader(doc, header, logoBase64);
-      drawStudentBio(doc, header, student);
+      drawHeader(doc, enrichedHeader, logoBase64);
+      drawStudentBio(doc, enrichedHeader, student);
       drawCourseTable(doc, student);
       drawPerformanceTable(doc, student.performance);
       drawKeyTable(doc);
@@ -278,7 +349,7 @@ const useStatementPDFGenerator = () => {
     });
 
     const fname = options.filename ||
-      `Statement_${header.session}_Sem${header.semester}_L${header.level}.pdf`;
+      `Statement_${enrichedHeader.session}_Sem${enrichedHeader.semester}_L${enrichedHeader.level}.pdf`;
     doc.save(fname);
   };
 

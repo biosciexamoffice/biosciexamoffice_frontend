@@ -1,5 +1,9 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
+import loadLogoBase64 from "./loadLogoBase64.js";
+import { normalizeId } from "./normalizeId.js";
+
+let cachedLogoPromise = null;
 
 // Prefer CA + TOTAL EXAM when both are available; otherwise use provided grandTotal.
 // If neither is available, return null to indicate "no score recorded".
@@ -28,21 +32,6 @@ const normalizeCourseCode = (code = "") =>
 
 const normalizeRegNo = (regNo = "") => String(regNo).trim().toUpperCase();
 
-const loadImageAsBase64 = async (url) => {
-  try {
-    const response = await fetch(url);
-    const blob = await response.blob();
-    return await new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.readAsDataURL(blob);
-    });
-  } catch {
-    // Gracefully continue without a logo if it fails
-    return null;
-  }
-};
-
 // Format: FIRSTNAME, OTHER NAMES
 const formatNameFirstComma = (fullName = "") => {
   const parts = String(fullName).trim().split(/\s+/);
@@ -60,44 +49,88 @@ const formatNameFirstComma = (fullName = "") => {
  * - separateCourses: { regularCourses, carryOverCourses }
  * - options.includeCarryOvers: boolean (default true)
  */
+
 const useMissingScoresPDFGenerator = () => {
   const generatePDF = async (data, formData, separateCourses, options = {}) => {
-    const { students = [], college, department, programme } = data || {};
+    const { students = [] } = data || {};
+    const metadata = data?.metadata || {};
+    const resolveText = (value, fallback) => {
+      if (!value) return fallback;
+      if (typeof value === 'string') return value;
+      return value.name || fallback;
+    };
+    const college = resolveText(metadata.college || data?.college, 'College Not Provided');
+    const department = resolveText(metadata.department || data?.department, 'Department Not Provided');
+    const programme = resolveText(metadata.programme || data?.programme, 'Programme Not Provided');
+    const deptExamOfficerName = resolveText(metadata.departmentExamOfficer || data?.deptExamOfficer, 'Department Exam Officer');
     const { session, semester, level } = formData || {};
     const { regularCourses = [], carryOverCourses = [] } = separateCourses || {};
     const includeCarryOvers = options.includeCarryOvers !== false; // default true
+    const registrationCache = new Map();
     const registrationSetsRaw = options.registrationSets || {};
-    const hasRegistrationData =
-      registrationSetsRaw &&
-      typeof registrationSetsRaw === "object" &&
-      Object.keys(registrationSetsRaw).length > 0;
-
     const getRegistrationSet = (courseId) => {
-      if (!hasRegistrationData) return null;
-      const entryKey = courseId ?? String(courseId ?? '');
-      const entry = registrationSetsRaw[entryKey] ?? registrationSetsRaw[String(entryKey)];
-      if (!entry) return null;
-      if (entry instanceof Set) return entry;
-      if (Array.isArray(entry)) {
-        const set = new Set(entry.map(normalizeRegNo));
-        registrationSetsRaw[entryKey] = set;
-        return set;
+      const key = normalizeId(courseId);
+      if (!key) return null;
+      if (registrationCache.has(key)) {
+        return registrationCache.get(key);
       }
-      return null;
+      const raw =
+        registrationSetsRaw[key] ||
+        registrationSetsRaw[String(courseId)];
+
+      let set = null;
+      if (raw instanceof Set) {
+        set = raw;
+      } else if (Array.isArray(raw)) {
+        set = new Set(raw.map(normalizeRegNo));
+      }
+      registrationCache.set(key, set);
+      return set;
     };
 
-    const findResultForCourse = (student, course) => {
-      const results = student?.results || {};
-      if (!course) return null;
-      const courseId = course.id ?? course._id ?? course.courseId;
-      if (courseId && results[courseId]) return results[courseId];
-      if (courseId && results[String(courseId)]) return results[String(courseId)];
-      const targetCode = normalizeCourseCode(course.code || course.courseCode);
-      if (!targetCode) return null;
-      return Object.values(results).find((value = {}) => {
-        const code = normalizeCourseCode(value.courseCode || value.code);
-        return code === targetCode;
-      }) || null;
+    const buildResultLookup = (results = {}) => {
+      const map = new Map();
+      Object.entries(results || {}).forEach(([rawKey, value]) => {
+        if (!value) return;
+        if (rawKey) {
+          map.set(String(rawKey), value);
+        }
+        const directId = normalizeId(value?.courseId || value?.course?._id);
+        if (directId) {
+          map.set(directId, value);
+        }
+        const codeKey = normalizeCourseCode(value?.courseCode || value?.code || value?.course?.code);
+        if (codeKey) {
+          map.set(codeKey, value);
+        }
+      });
+      return map;
+    };
+
+    const resultLookupByStudent = new Map();
+    students.forEach((student) => {
+      resultLookupByStudent.set(
+        String(student.id || student._id || student.regNo || ""),
+        buildResultLookup(student.results)
+      );
+    });
+
+    const findResultForCourse = (lookup, course) => {
+      if (!lookup || !course) return null;
+      const candidates = [
+        normalizeId(course?.id),
+        normalizeId(course?._id),
+        String(course?.id ?? ""),
+        String(course?._id ?? ""),
+        normalizeCourseCode(course?.code || course?.courseCode),
+      ].filter(Boolean);
+
+      for (const key of candidates) {
+        if (lookup.has(key)) {
+          return lookup.get(key);
+        }
+      }
+      return null;
     };
 
     // Build the list of courses to check (regular + optionally carry-overs)
@@ -110,15 +143,18 @@ const useMissingScoresPDFGenerator = () => {
       .map((s) => {
         const missing = [];
         const regUpper = normalizeRegNo(s.regNo);
+        const lookup = resultLookupByStudent.get(
+          String(s.id || s._id || s.regNo || "")
+        );
 
         coursesToCheck.forEach((course) => {
-          const regSet = getRegistrationSet(course.id);
+          const regSet = getRegistrationSet(course.id || course._id);
           const isRegistered = regSet ? regSet.has(regUpper) : true; // fallback: assume registered if no data
           if (!isRegistered) {
             return;
           }
 
-          const result = findResultForCourse(s, course);
+          const result = findResultForCourse(lookup, course);
 
           if (!result) {
             // No result recorded at all
@@ -151,7 +187,10 @@ const useMissingScoresPDFGenerator = () => {
       }));
 
     // Create the PDF
-    const logoBase64 = await loadImageAsBase64("/uam.jpeg");
+    if (!cachedLogoPromise) {
+      cachedLogoPromise = loadLogoBase64();
+    }
+    const logoBase64 = await cachedLogoPromise;
     const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "legal" });
 
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -185,7 +224,7 @@ const useMissingScoresPDFGenerator = () => {
       doc.setFont("times", "bold");
       doc.setFontSize(10);
       doc.text(
-        "Dept. Exam Officer: MR. I. Y. JOEL    ………………………            Date………………………………",
+        `Dept. Exam Officer: ${deptExamOfficerName || 'Department Exam Officer'}    ………………………            Date………………………………`,
         leftMargin,
         pageHeight - 15
       );

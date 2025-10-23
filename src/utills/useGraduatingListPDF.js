@@ -1,18 +1,11 @@
 // src/utills/useGraduatingListPDF.js
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import loadLogoBase64 from './loadLogoBase64.js';
+
+let cachedLogoPromise = null;
 
 const useGraduatingListPDF = () => {
-  const loadImageAsBase64 = async (url) => {
-    const res = await fetch(url);
-    const blob = await res.blob();
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.readAsDataURL(blob);
-    });
-  };
-
   const degreeClass = (cgpa) => {
     const v = Number(cgpa);
     if (!Number.isFinite(v)) return '—';
@@ -39,7 +32,10 @@ const useGraduatingListPDF = () => {
 
   const generatePDF = async (payload, formData) => {
     const { students = [], header = {} } = payload || {};
-    const logoBase64 = await loadImageAsBase64('/uam.jpeg');
+    if (!cachedLogoPromise) {
+      cachedLogoPromise = loadLogoBase64();
+    }
+    const logoBase64 = await cachedLogoPromise;
 
     // === WIDER PAGE (legal) + landscape ===
     const PAGE_FORMAT = 'legal'; // change to 'a4' if you must keep A4
@@ -52,52 +48,72 @@ const useGraduatingListPDF = () => {
     const tableTop = 58;
     const bottomPad = 56;
 
-    const drawHeaderFooter = () => {
-      const pageCount = doc.internal.getNumberOfPages();
-      for (let i = 1; i <= pageCount; i++) {
-        doc.setPage(i);
+    const keyText =
+      'KEY: CCC = Cumulative Credit Carried, CCE = Cumulative Credit Earned, CPE = Cumulative Points Earned, CGPA = Cumulative Grade Point Average';
+    const wrappedKey = doc.splitTextToSize(keyText, pageWidth - left - right);
 
-        // Header
-        doc.setFont('times', 'bold'); doc.setFontSize(12);
-        doc.text('JOSEPH SARWUAN TARKA UNIVERSITY, P. M. B. 2373, MAKURDI', pageWidth / 2, 14, { align: 'center' });
+    const resolveText = (value, fallback) => {
+      if (!value) return fallback;
+      if (typeof value === 'string') return value;
+      return value.name || fallback;
+    };
 
-        const lw = 14, lh = 14, lx = (pageWidth - lw) / 2, ly = 16.5;
+    const collegeLabel = resolveText(header.college, 'College Not Provided');
+    const departmentLabel = resolveText(header.department, 'Department Not Provided');
+    const programmeLabel = resolveText(header.programme, 'Programme Not Provided');
+    const deptExamOfficerName = resolveText(header.departmentExamOfficer, 'Dept. Exam Officer');
+    const collegeExamOfficerName = resolveText(header.collegeExamOfficer, 'College Exam Officer');
+    const headOfDepartmentName = resolveText(header.headOfDepartment, 'Head of Department');
+    const deanName = resolveText(header.dean, 'Dean of College');
+
+    const drawHeader = () => {
+      doc.setFont('times', 'bold');
+      doc.setFontSize(12);
+      doc.text('JOSEPH SARWUAN TARKA UNIVERSITY, P. M. B. 2373, MAKURDI', pageWidth / 2, 14, { align: 'center' });
+
+      if (logoBase64) {
+        const lw = 14;
+        const lh = 14;
+        const lx = (pageWidth - lw) / 2;
+        const ly = 16.5;
         doc.addImage(logoBase64, 'JPEG', lx, ly, lw, lh);
-
-        doc.setFontSize(12);
-        doc.text(header.title || 'GRADUATING STUDENTS LIST', pageWidth / 2, 35, { align: 'center' });
-
-        doc.setFont('times', 'normal'); doc.setFontSize(11);
-        doc.text(`College: ${header.college || 'College Not Provided'}`, left, 42);
-        doc.text(`Department: ${header.department || 'Department Not Provided'}`, left, 48.5);
-        doc.text(`Programme: ${header.programme || 'Programme Not Provided'}`, left, 55);
-
-        doc.text(`Level: 400`, pageWidth - right, 42, { align: 'right' });
-        doc.text(`Semester: ${Number(formData.semester) === 1 ? 'First' : 'Second'}`, pageWidth - right, 48.5, { align: 'right' });
-        doc.text(`Session: ${formData.session}`, pageWidth - right, 55, { align: 'right' });
-
-        // Footer (spaced)
-        const footerTop = pageHeight - 34;
-        const gapKeyToMin = 3.5, gapToSignatures = 9, sigGap = 5.3;
-
-        const keyText =
-          'KEY: CCC = Cumulative Credit Carried, CCE = Cumulative Credit Earned, CPE = Cumulative Points Earned, CGPA = Cumulative Grade Point Average';
-        const wrappedKey = doc.splitTextToSize(keyText, pageWidth - left - right);
-        doc.text(wrappedKey, left, footerTop);
-
-        let y = footerTop + (wrappedKey.length - 1) * 4.0;
-        y += gapKeyToMin;
-        doc.text('Minimum CCE required for Graduation: UME = 135, DE = 86', left, y);
-
-        y += gapToSignatures;
-        doc.text('Dept. Exam Officer: MR. I. Y. JOEL       ————————————   Date: —————————', left, y += sigGap);
-        doc.text('College Exam Officer: Mr. O. A. OJOBO   ————————————   Date: —————————', left, y += sigGap);
-        doc.text('Head of Dept: DR. (MRS.) T. AKANDE      ————————————   Date: —————————', left, y += sigGap);
-        doc.text('Dean of College: PROF. C. U. AGUORU     ————————————   Date: —————————', left, y += sigGap);
-
-        doc.setFontSize(10);
-        doc.text(`${i}`, pageWidth / 2, pageHeight - 6, { align: 'center' });
       }
+
+      doc.setFontSize(12);
+      doc.text(header.title || 'GRADUATING STUDENTS LIST', pageWidth / 2, 35, { align: 'center' });
+
+      doc.setFont('times', 'normal');
+      doc.setFontSize(11);
+      doc.text(`College: ${collegeLabel}`, left, 42);
+      doc.text(`Department: ${departmentLabel}`, left, 48.5);
+      doc.text(`Programme: ${programmeLabel}`, left, 55);
+
+      doc.text(`Level: 400`, pageWidth - right, 42, { align: 'right' });
+      doc.text(`Semester: ${Number(formData.semester) === 1 ? 'First' : 'Second'}`, pageWidth - right, 48.5, { align: 'right' });
+      doc.text(`Session: ${formData.session}`, pageWidth - right, 55, { align: 'right' });
+    };
+
+    const drawFooter = (pageNumber) => {
+      const footerTop = pageHeight - 34;
+      const gapKeyToMin = 3.5;
+      const gapToSignatures = 9;
+      const sigGap = 5.3;
+
+      doc.setFont('times', 'normal');
+      doc.setFontSize(10.5);
+      doc.text(wrappedKey, left, footerTop);
+
+      let y = footerTop + (wrappedKey.length - 1) * 4.0 + gapKeyToMin;
+      doc.text('Minimum CCE required for Graduation: UME = 135, DE = 86', left, y);
+
+      y += gapToSignatures;
+      doc.text(`Dept. Exam Officer: ${deptExamOfficerName}       ————————————   Date: —————————`, left, y += sigGap);
+      doc.text(`College Exam Officer: ${collegeExamOfficerName}   ————————————   Date: —————————`, left, y += sigGap);
+      doc.text(`Head of Dept: ${headOfDepartmentName}      ————————————   Date: —————————`, left, y += sigGap);
+      doc.text(`Dean of College: ${deanName}     ————————————   Date: —————————`, left, y += sigGap);
+
+      doc.setFontSize(10);
+      doc.text(String(pageNumber), pageWidth / 2, pageHeight - 6, { align: 'center' });
     };
 
     // ==== Columns (Failed + Remarks included) ====
@@ -204,7 +220,13 @@ const useGraduatingListPDF = () => {
         [idxFailed]:  { halign: 'left',   cellWidth: 52 }, // tighter
         [idxRemarks]: { halign: 'left',   cellWidth: 60 }, // tighter
       },
-      didDrawPage: () => drawHeaderFooter()
+      margin: { top: tableTop, bottom: bottomPad, left, right },
+      willDrawPage: (data) => {
+        drawHeader();
+      },
+      didDrawPage: (data) => {
+        drawFooter(data.pageNumber);
+      }
     });
 
     doc.save(`Graduating_List_${formData.session}_Sem${formData.semester}_400L.pdf`);

@@ -1,18 +1,11 @@
 // src/utills/useGraduatingListPrintPDF.js
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import loadLogoBase64 from './loadLogoBase64.js';
+
+let cachedLogoPromise = null;
 
 const useGraduatingListPrintPDF = () => {
-  const loadImageAsBase64 = async (url) => {
-    const res = await fetch(url);
-    const blob = await res.blob();
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result);
-      reader.readAsDataURL(blob);
-    });
-  };
-
   // Map 5.0 scale -> class of degree (text will be uppercased later)
   const degreeClass = (cgpa) => {
     const v = Number(cgpa);
@@ -27,7 +20,22 @@ const useGraduatingListPrintPDF = () => {
 
   const generatePDF = async (payload, formData) => {
     const { students = [], header = {} } = payload || {};
-    const logoBase64 = await loadImageAsBase64('/uam.jpeg');
+    if (!cachedLogoPromise) {
+      cachedLogoPromise = loadLogoBase64();
+    }
+    const logoBase64 = await cachedLogoPromise;
+    const resolveText = (value, fallback) => {
+      if (!value) return fallback;
+      if (typeof value === 'string') return value;
+      return value.name || fallback;
+    };
+    const collegeLabel = resolveText(header.college, 'College Not Provided');
+    const departmentLabel = resolveText(header.department, 'Department Not Provided');
+    const programmeLabel = resolveText(header.programme, 'Programme Not Provided');
+    const deptExamOfficerName = resolveText(header.departmentExamOfficer, 'Mr Joel Ireoluwa Yinka');
+    const collegeExamOfficerName = resolveText(header.collegeExamOfficer, 'Mr Ojobo Omoche Adewa');
+    const headOfDeptName = resolveText(header.headOfDepartment, 'Doctor Akande Titilayo');
+    const deanName = resolveText(header.dean, 'Professor Celestine Agoru');
 
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -36,7 +44,7 @@ const useGraduatingListPrintPDF = () => {
     // layout
     const left = 10;
     const right = 10;
-    const tableTop = 60;          // same visual top for table
+    const tableTop = 92;          // ensure table begins below metadata block
     const textBlack = [0, 0, 0];
 
     // Footer content + metrics (compute exact reserve)
@@ -64,72 +72,63 @@ const useGraduatingListPrintPDF = () => {
       bottomPadding;
 
     // Draw header/footer on every page, anchored from bottom
-    const drawHeaderFooter = () => {
-      const pageCount = doc.internal.getNumberOfPages();
-      for (let i = 1; i <= pageCount; i++) {
-        doc.setPage(i);
+    const drawHeader = () => {
+      doc.setFont('times', 'bold');
+      doc.setFontSize(12);
+      doc.setTextColor(...textBlack);
+      doc.text(
+        'JOSEPH SARWUAN TARKA UNIVERSITY, P. M. B. 2373, MAKURDI',
+        pageWidth / 2,
+        15,
+        { align: 'center' }
+      );
 
-        // Header
-        doc.setFont('times', 'bold');
-        doc.setFontSize(12);
-        doc.setTextColor(...textBlack);
-        doc.text(
-          'JOSEPH SARWUAN TARKA UNIVERSITY, P. M. B. 2373, MAKURDI',
-          pageWidth / 2,
-          15,
-          { align: 'center' }
-        );
-
-        const lw = 15, lhLogo = 15, lx = (pageWidth - lw) / 2, ly = 18;
+      if (logoBase64) {
+        const lw = 15;
+        const lhLogo = 15;
+        const lx = (pageWidth - lw) / 2;
+        const ly = 18;
         doc.addImage(logoBase64, 'JPEG', lx, ly, lw, lhLogo);
-
-        doc.setFontSize(12);
-        doc.text(header.title || 'GRADUATING STUDENTS LIST (PRINT)', pageWidth / 2, 38, { align: 'center' });
-
-        doc.setFont('times', 'normal');
-        doc.setFontSize(9);
-        doc.text(`College: ${header.college || 'College Not Provided'}`, left, 45);
-        doc.text(`Department: ${header.department || 'Department Not Provided'}`, left, 52);
-        doc.text(`Programme: ${header.programme || 'Programme Not Provided'}`, left, 59);
-
-        doc.text(`Level: 400`, pageWidth - right, 45, { align: 'right' });
-        doc.text(
-          `Semester: ${Number(formData.semester) === 1 ? 'First' : 'Second'}`,
-          pageWidth - right,
-          52,
-          { align: 'right' }
-        );
-        doc.text(`Session: ${formData.session}`, pageWidth - right, 59, { align: 'right' });
-
-        // Footer — anchor from bottom using computed reserve
-        // Start Y so that the footer fits exactly into the reserved box.
-        let y = pageHeight - footerReserve + 2; // small top inset in the footer box
-
-        // KEY
-        doc.setFont('times', 'normal');
-        keyWrapped.forEach((line, idx) => {
-          doc.text(line, left, y + idx * lh);
-        });
-        y += keyWrapped.length * lh + gapKeyToMin;
-
-        // Minimum line
-        doc.text('Minimum CCE required for Graduation: UME = 135, DE = 86', left, y);
-        y += gapToSignatures;
-
-        // Signatures
-        y += sigGap;
-        doc.text('Dept. Exam Officer: MR. I. Y. JOEL      ————————————        Date: —————————', left, y);
-        y += sigGap;
-        doc.text('College Exam Officer: Mr. O. A. Ojobo   ————————————        Date: —————————', left, y);
-        y += sigGap;
-        doc.text('Head of Dept: DR. (MRS.) T. AKANDE      ————————————        Date: —————————', left, y);
-        y += sigGap;
-        doc.text('Dean of College: PROF. C. U. AGUORU     ————————————        Date: —————————', left, y);
-
-        // Page number near bottom
-        doc.setFontSize(9);
-        doc.text(`${i}`, pageWidth / 2, pageHeight - 6, { align: 'center' });
       }
+
+      doc.setFontSize(12);
+      doc.text(header.title || 'GRADUATING STUDENTS LIST (PRINT)', pageWidth / 2, 38, { align: 'center' });
+
+      doc.setFont('times', 'normal');
+      doc.setFontSize(9);
+      doc.text(`College: ${collegeLabel}`, left, 45);
+      doc.text(`Department: ${departmentLabel}`, left, 52);
+      doc.text(`Programme: ${programmeLabel}`, left, 59);
+
+      const rightBlockX = pageWidth - right - 50;
+      const levelText = `Level: ${formData.level ?? ''}`;
+      const semesterText = `Semester: ${Number(formData.semester) === 1 ? 'First' : 'Second'}`;
+      const sessionText = `Session: ${formData.session ?? ''}`;
+      doc.text(levelText, rightBlockX, 45);
+      doc.text(semesterText, rightBlockX, 52);
+      doc.text(sessionText, rightBlockX, 59);
+    };
+
+    const drawFooter = (pageNumber) => {
+      let y = pageHeight - footerReserve + 2;
+      doc.setFont('times', 'normal');
+      doc.setFontSize(8);
+      keyWrapped.forEach((line, idx) => {
+        doc.text(line, left, y + idx * lh);
+      });
+      y += keyWrapped.length * lh + gapKeyToMin;
+      doc.text('Minimum CCE required for Graduation: UME = 135, DE = 86', left, y);
+      y += gapToSignatures + sigGap;
+      doc.text(`Dept. Exam Officer: ${deptExamOfficerName}      ————————————        Date: —————————`, left, y);
+      y += sigGap;
+      doc.text(`College Exam Officer: ${collegeExamOfficerName}   ————————————        Date: —————————`, left, y);
+      y += sigGap;
+      doc.text(`Head of Dept: ${headOfDeptName}      ————————————        Date: —————————`, left, y);
+      y += sigGap;
+      doc.text(`Dean of College: ${deanName}     ————————————        Date: —————————`, left, y);
+
+      doc.setFontSize(9);
+      doc.text(String(pageNumber), pageWidth / 2, pageHeight - 6, { align: 'center' });
     };
 
     // Columns (NO Adm., NO Remarks)
@@ -145,7 +144,14 @@ const useGraduatingListPrintPDF = () => {
     const headRow2 = [...colsProfile, ...colsCgpaLevels, ...colsCum];
 
     // Only ELIGIBLE students
-    const eligibleOnly = students.filter(s => s?.eligibility?.eligible);
+    let eligibleOnly = students.filter((s) => {
+      if (!s?.eligibility) return true;
+      return Boolean(s.eligibility.eligible);
+    });
+
+    if (!eligibleOnly.length) {
+      eligibleOnly = students;
+    }
 
     const body = eligibleOnly.map((s, idx) => {
       const c = s.cumulative || {};
@@ -217,10 +223,7 @@ const useGraduatingListPrintPDF = () => {
         textColor: textBlack,
         lineColor: textBlack,
       },
-      alternateRowStyles: {
-        fillColor: null,
-        textColor: textBlack,
-      },
+      alternateRowStyles: { fillColor: null },
       columnStyles: {
         0: { cellWidth: 8,  halign: 'left' },   // S/No.
         1: { cellWidth: 32, halign: 'left' },   // Reg No
@@ -234,8 +237,11 @@ const useGraduatingListPrintPDF = () => {
         [idxCGPAcum]: { halign: 'center', cellWidth: 18 },
         [idxClass]:   { halign: 'left',   cellWidth: 36 },
       },
-      didDrawPage: () => {
-        drawHeaderFooter();
+      willDrawPage: (data) => {
+        drawHeader();
+      },
+      didDrawPage: (data) => {
+        drawFooter(data.pageNumber);
       }
     });
 

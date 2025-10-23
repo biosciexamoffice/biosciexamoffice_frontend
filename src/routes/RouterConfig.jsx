@@ -1,5 +1,5 @@
 import { Suspense, lazy } from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, HashRouter, Routes, Route } from "react-router-dom";
 import Layout from "../components/layout/Layout";
 import Loading from "../components/layout/Loading";
 import RequireAuth from "../components/auth/RequireAuth";
@@ -18,8 +18,11 @@ const AdminPanel = lazy(() => import("../pages/admin/AdminPanel"));
 const Profile = lazy(() => import("../pages/profile/Profile"));
 
 function AppRouter() {
+  const isFileProtocol = typeof window !== 'undefined' && window.location.protocol === 'file:';
+  const RouterComponent = isFileProtocol ? HashRouter : BrowserRouter;
+
   return (
-    <BrowserRouter>
+    <RouterComponent>
       <Suspense fallback={<Loading />}>
         <Routes>
           <Route path="/login" element={<Login />} />
@@ -50,7 +53,7 @@ function AppRouter() {
           </Route>
         </Routes>
       </Suspense>
-    </BrowserRouter>
+    </RouterComponent>
   );
 }
 

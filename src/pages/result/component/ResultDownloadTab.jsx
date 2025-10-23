@@ -46,25 +46,44 @@ export default function ResultDownloadTab() {
     try {
       setBusy(true);
 
+      const sortedLevels = levels
+        .slice()
+        .sort((a, b) => Number(a) - Number(b));
+
+      const levelCache = new Map();
+
+      const fetcher = async (level) => {
+        const levelKey = String(level);
+        if (levelCache.has(levelKey)) {
+          return levelCache.get(levelKey);
+        }
+        const payload = await getComp({
+          session,
+          semester: Number(semester),
+          level: levelKey,
+        }).unwrap();
+        const normalized = payload || { students: [], courses: [], metadata: {} };
+        levelCache.set(levelKey, normalized);
+        return normalized;
+      };
+
+      const firstLevel = sortedLevels[0];
+      const firstPayload = await fetcher(firstLevel);
+      const metadata = firstPayload?.metadata || {};
+
       const header = {
         university: 'JOSEPH SARWUAN TARKA UNIVERSITY',
         address: 'P.M.B 2373, MAKURDI',
-        college: 'COLLEGE OF BIOLOGICAL SCIENCES',
-        department: 'DEPARTMENT OF BIOCHEMISTRY',
-        programme: 'Programme Not Provided',
+        college: metadata.college || firstPayload?.college || 'COLLEGE OF BIOLOGICAL SCIENCES',
+        department: metadata.department || firstPayload?.department || 'DEPARTMENT OF BIOCHEMISTRY',
+        programme: metadata.programme || firstPayload?.programme || 'Programme Not Provided',
         logoUrl: '/uam.jpeg',
-      };
-
-      // fetcher will be called by the hook for each level
-      const fetcher = async (level) => {
-        const { data } = await getComp({ session, semester, level }).unwrap();
-        return data || { students: [], courses: [] };
       };
 
       await generateCombinedPDF(header, {
         session,
-        semester,
-        levels,
+        semester: Number(semester),
+        levels: sortedLevels,
         types,       // ordered by our hook; we internally render summary → main → passfail
         fetcher,
       });

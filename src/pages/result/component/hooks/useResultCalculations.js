@@ -6,26 +6,68 @@ import {
   gradeFromScore,
   normalizeRegNo,
 } from '../utils/resultUtils';
+import { normalizeId } from '../../../../utills/normalizeId.js';
 
-export const useSeparatedCourses = (processedData, approvedCourses) => useMemo(() => {
-  if (!processedData?.courses || !approvedCourses) {
+const normalizeCode = (code = '') =>
+  String(code)
+    .trim()
+    .replace(/^[A-Z]-/, '')
+    .replace(/\s+/g, '')
+    .toUpperCase();
+
+export const useSeparatedCourses = (processedData, approvedCourses, targetLevel) => useMemo(() => {
+  if (!processedData?.courses) {
     return { regularCourses: [], carryOverCourses: [] };
   }
 
   const uniqueCourses = [];
+  const seenIds = new Set();
   const seenCodes = new Set();
+
   for (const course of processedData.courses || []) {
-    if (course.code && !seenCodes.has(course.code)) {
+    const normalizedId = normalizeId(course?.id || course?._id);
+    if (normalizedId) {
+      if (seenIds.has(normalizedId)) continue;
+      seenIds.add(normalizedId);
+      uniqueCourses.push({ ...course, id: normalizedId });
+      continue;
+    }
+
+    const normalizedCode = normalizeCode(course?.code);
+    if (normalizedCode && !seenCodes.has(normalizedCode)) {
+      seenCodes.add(normalizedCode);
       uniqueCourses.push(course);
-      seenCodes.add(course.code);
     }
   }
 
+  const approvedById = new Map();
   const approvedByCode = new Map();
-  approvedCourses.forEach((doc) => {
+  const normalizedTargetLevel =
+    targetLevel !== undefined && targetLevel !== null && targetLevel !== ''
+      ? Number(targetLevel)
+      : null;
+
+  (Array.isArray(approvedCourses) ? approvedCourses : []).forEach((doc) => {
+    if (!doc) return;
+    if (normalizedTargetLevel !== null && Number(doc.level) !== normalizedTargetLevel) {
+      return;
+    }
+
     (doc.courses || []).forEach((course) => {
-      if (course?.code) {
-        approvedByCode.set(course.code, { ...course });
+      if (!course) return;
+      const normalizedId = normalizeId(course?._id || course?.id);
+      const normalizedCode = normalizeCode(course?.code);
+      const entry = {
+        ...course,
+        id: normalizedId || course?.id,
+      };
+
+      if (normalizedId && !approvedById.has(normalizedId)) {
+        approvedById.set(normalizedId, entry);
+      }
+
+      if (normalizedCode && !approvedByCode.has(normalizedCode)) {
+        approvedByCode.set(normalizedCode, entry);
       }
     });
   });
@@ -34,11 +76,23 @@ export const useSeparatedCourses = (processedData, approvedCourses) => useMemo((
   const carryOverCourses = [];
 
   uniqueCourses.forEach((course) => {
-    const approved = approvedByCode.get(course.code);
+    const normalizedId = normalizeId(course?.id || course?._id);
+    const normalizedCode = normalizeCode(course?.code);
+    const approved =
+      (normalizedId && approvedById.get(normalizedId)) ||
+      (!normalizedId && normalizedCode && approvedByCode.get(normalizedCode));
+
     if (approved) {
-      regularCourses.push({ ...course, option: approved.option });
+      regularCourses.push({
+        ...course,
+        id: normalizedId || course?.id,
+        option: approved.option ?? course?.option,
+      });
     } else {
-      carryOverCourses.push(course);
+      carryOverCourses.push({
+        ...course,
+        id: normalizedId || course?.id,
+      });
     }
   });
 
@@ -49,7 +103,7 @@ export const useSeparatedCourses = (processedData, approvedCourses) => useMemo((
   carryOverCourses.sort(sortByUnitThenCode);
 
   return { regularCourses, carryOverCourses };
-}, [processedData, approvedCourses]);
+}, [processedData, approvedCourses, targetLevel]);
 
 export const useRegistrationSets = ({
   isSuccess,
@@ -218,19 +272,41 @@ export const useGradeSummary = ({
   const limitSet = Array.isArray(limitRegNos) && limitRegNos.length
     ? new Set(limitRegNos.map(normalizeRegNo))
     : null;
+  const studentIndex = new Map();
+  const resultLookupByStudent = new Map();
 
-  const studentPairs = enhancedProcessedData.students
-    .filter((student) => {
-      if (!limitSet) return true;
-      return limitSet.has(normalizeRegNo(student.regNo));
-    })
-    .map((student) => [normalizeRegNo(student.regNo), student]);
+  enhancedProcessedData.students.forEach((student) => {
+    const regUpper = normalizeRegNo(student.regNo);
+    if (limitSet && !limitSet.has(regUpper)) {
+      return;
+    }
+    studentIndex.set(regUpper, student);
 
-  if (!studentPairs.length) {
+    const lookup = new Map();
+    Object.entries(student?.results || {}).forEach(([rawKey, value]) => {
+      if (!value) return;
+      if (rawKey) {
+        lookup.set(String(rawKey), value);
+      }
+      const direct = normalizeId(value?.courseId || value?.course?._id);
+      if (direct) {
+        lookup.set(direct, value);
+      }
+      const code = String(value?.courseCode || value?.code || value?.course?.code || '')
+        .replace(/^[A-Z]-/i, '')
+        .replace(/\s+/g, '')
+        .toUpperCase();
+      if (code) {
+        lookup.set(code, value);
+      }
+    });
+    resultLookupByStudent.set(regUpper, lookup);
+  });
+
+  if (!studentIndex.size) {
     return [];
   }
 
-  const studentIndex = new Map(studentPairs);
   const computedRegSet = new Set(studentIndex.keys());
 
   const allLevelCourses = [
@@ -244,32 +320,64 @@ export const useGradeSummary = ({
 
   return allLevelCourses
     .map((course) => {
-      const regSet = regSetsByCourseId?.[course.id] || new Set();
-      const relevantRegNos = Array.from(regSet).filter((regUpper) => computedRegSet.has(regUpper));
-      const totalRegistered = relevantRegNos.length;
-      if (totalRegistered === 0) return null;
+      const courseKey = normalizeId(course.id) || String(course.id);
+      const regSet =
+        regSetsByCourseId?.[courseKey] ||
+        regSetsByCourseId?.[String(course.id)] ||
+        regSetsByCourseId?.[course.id];
+
+      if (!(regSet instanceof Set) || regSet.size === 0) {
+        return null;
+      }
 
       const dist = { A: 0, B: 0, C: 0, D: 0, E: 0, F: 0 };
+      let totalRegistered = 0;
 
-      relevantRegNos.forEach((regUpper) => {
+      const candidateKeys = [
+        normalizeId(course?.id),
+        normalizeId(course?._id),
+        String(course?.id ?? ''),
+        String(course?._id ?? ''),
+        String(course?.code || '').replace(/^[A-Z]-/i, '').replace(/\s+/g, '').toUpperCase(),
+      ].filter(Boolean);
+
+      regSet.forEach((regUpperRaw) => {
+        const regUpper = normalizeRegNo(regUpperRaw);
+        if (!computedRegSet.has(regUpper)) return;
         const student = studentIndex.get(regUpper);
-        const result = student ? getCourseResult(student, course) : null;
+        if (!student) return;
+        totalRegistered += 1;
 
+        const lookup = resultLookupByStudent.get(regUpper);
+        let result = null;
+        if (lookup) {
+          for (const key of candidateKeys) {
+            if (lookup.has(key)) {
+              result = lookup.get(key);
+              break;
+            }
+          }
+        }
+
+        let grade = 'F';
         if (result && Number.isFinite(Number.parseFloat(result.grandtotal))) {
           const score = Number.parseFloat(result.grandtotal);
-          const grade = (result?.grade ?? gradeFromScore(score)) || 'F';
-          if (dist[grade] != null) {
-            dist[grade] += 1;
-          } else {
-            dist.F += 1;
-          }
+          grade = (result?.grade ?? gradeFromScore(score)) || 'F';
+        }
+
+        if (Object.prototype.hasOwnProperty.call(dist, grade)) {
+          dist[grade] += 1;
         } else {
           dist.F += 1;
         }
       });
 
-      const passed = dist.A + dist.B + dist.C + dist.D + dist.E;
-      const percentagePass = totalRegistered > 0 ? (passed / totalRegistered) * 100 : 0;
+      if (totalRegistered === 0) {
+        return null;
+      }
+
+      const passed = totalRegistered - dist.F;
+      const percentagePass = (passed / totalRegistered) * 100;
 
       return {
         code: course.code,

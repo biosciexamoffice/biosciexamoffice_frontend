@@ -85,6 +85,14 @@ export const academicMetricsApi = createApi({
       }),
       invalidatesTags: ['AcademicMetrics', 'ComprehensiveResults'],
     }),
+    analyzeOldMetrics: builder.mutation({
+      query: ({ body }) => ({
+        url: '/academic-metrics/upload-old',
+        method: 'POST',
+        body,
+        headers: {},
+      }),
+    }),
     uploadOldMetrics: builder.mutation({
   query: ({ body, onUploadProgress }) => ({
     url: '/academic-metrics/upload-old',
@@ -112,5 +120,6 @@ export const {
   useLazySearchMetricsQuery,
   useUpdateMetricsMutation,
   useRecomputeAcademicMetricsMutation,
+  useAnalyzeOldMetricsMutation,
   useUploadOldMetricsMutation,
 } = academicMetricsApi;

@@ -1,8 +1,23 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
 
+const resolveEnvUrl = () => {
+  if (typeof window !== 'undefined') {
+    if (window.__ELECTRON_DESKTOP__?.apiBase) {
+      return `${window.__ELECTRON_DESKTOP__.apiBase.replace(/\/?$/,'')}/env`;
+    }
+    if (window.location.protocol === 'file:' && process?.env?.ELECTRON_API_BASE) {
+      return `${process.env.ELECTRON_API_BASE.replace(/\/?$/,'')}/env`;
+    }
+  }
+  if (typeof process !== 'undefined' && process.env?.ELECTRON_API_BASE) {
+    return `${process.env.ELECTRON_API_BASE.replace(/\/?$/,'')}/env`;
+  }
+  return '/api/env';
+};
+
 export const fetchEnvironment = createAsyncThunk('env/fetch', async (_, { rejectWithValue }) => {
   try {
-    const response = await fetch('/api/env', { credentials: 'include' });
+    const response = await fetch(resolveEnvUrl(), { credentials: 'include' });
     if (!response.ok) {
       throw new Error(`Request failed with status ${response.status}`);
     }

@@ -1,17 +1,7 @@
 // utils/useRegistrationPDFGenerator.js
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-
-// --- helpers (same as before)
-const loadImageAsBase64 = async (url) => {
-  const res = await fetch(url);
-  const blob = await res.blob();
-  return new Promise((resolve) => {
-    const r = new FileReader();
-    r.onloadend = () => resolve(r.result);
-    r.readAsDataURL(blob);
-  });
-};
+import loadLogoBase64 from './loadLogoBase64.js';
 
 const fullName = (stu) =>
   `${(stu?.surname || '').toUpperCase()} ${(stu?.firstname || '').toUpperCase()}${
@@ -26,6 +16,18 @@ const useRegistrationPDFGenerator = () => {
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const leftMargin = 12;
+
+    const resolveText = (value, fallback) => {
+      if (!value) return fallback;
+      if (typeof value === 'string') return value;
+      return value.name || fallback;
+    };
+
+    const collegeLabel = resolveText(meta?.college, 'College Not Provided');
+    const departmentLabel = resolveText(meta?.department, 'Department Not Provided');
+    const programmeLabel = resolveText(meta?.programme, 'Programme Not Provided');
+    const deptExamOfficerName = resolveText(meta?.departmentExamOfficer || meta?.deptExamOfficer, 'Department Exam Officer');
+    const headOfDeptName = resolveText(meta?.headOfDepartment || meta?.headOfDept, 'Head of Department');
 
     doc.setFontSize(12);
     doc.setFont('times', 'bold');
@@ -64,9 +66,9 @@ const useRegistrationPDFGenerator = () => {
     const leftValueX = leftLabelX + 30;
     drawMetaBlock(
       [
-        ['College:', meta?.college || 'College Not Provided'],
-        ['Department:', meta?.department || 'Department Not Provided'],
-        ['Programme:', meta?.programme || 'Programme Not Provided'],
+        ['College:', collegeLabel],
+        ['Department:', departmentLabel],
+        ['Programme:', programmeLabel],
       ],
       leftLabelX,
       leftValueX,
@@ -105,13 +107,13 @@ const useRegistrationPDFGenerator = () => {
     doc.setFont('times', 'normal');
     
     doc.text(
-      `Dept. Registration. Officer: ${meta?.deptExamOfficer || 'MR. Y. L. David'}`,
+      `Dept. Registration. Officer: ${deptExamOfficerName || 'Department Exam Officer'}`,
       leftMargin,
       footerStartY
     );
 
     doc.text(
-      `Head of Dept: ${meta?.headOfDept || 'DR. (MRS.) T. AKANDE'}`,
+      `Head of Dept: ${headOfDeptName || 'Head of Department'}`,
       rightLabelX,
       footerStartY
     );
@@ -147,7 +149,7 @@ const useRegistrationPDFGenerator = () => {
   // Single-student file (unchanged behavior)
   const generateStudentPDF = async (student, meta) => {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    const logoBase64 = await loadImageAsBase64('/uam.jpeg');
+    const logoBase64 = await loadLogoBase64();
 
     drawHeaderFooterForPage(doc, logoBase64, meta, student);
 

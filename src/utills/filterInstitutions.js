@@ -1,3 +1,5 @@
+import { idsMatch, normalizeId } from './normalizeId.js';
+
 export const isDepartmentScopedRole = (roles = []) =>
   roles.some((role) => ["EXAM_OFFICER", "HOD"].includes(role));
 
@@ -13,12 +15,12 @@ export const filterInstitutionsForUser = (
     return { colleges, programmes };
   }
 
-  const departmentId = user.departmentId;
+  const departmentId = normalizeId(user.departmentId);
 
   const scopedColleges = colleges
     .map((college) => {
       const departments = (college.departments || []).filter(
-        (dept) => String(dept.id) === departmentId
+        (dept) => idsMatch(dept.id, departmentId)
       );
       if (!departments.length) {
         return null;
@@ -28,7 +30,7 @@ export const filterInstitutionsForUser = (
     .filter(Boolean);
 
   const scopedProgrammes = programmes.filter(
-    (programme) => String(programme.departmentId) === departmentId
+    (programme) => idsMatch(programme.departmentId, departmentId)
   );
 
   return {

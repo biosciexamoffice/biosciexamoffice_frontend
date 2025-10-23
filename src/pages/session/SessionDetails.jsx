@@ -398,7 +398,7 @@ const SessionDetails = ({
           </Typography>
 
           <Grid container spacing={2}>
-            <Grid item xs={12} md={4}>
+            <Grid item xs={12} md={3}>
               <Typography variant="subtitle2">Dean of College</Typography>
               <Typography variant="body1">
                 {session.principalOfficers?.dean?.name} ({session.principalOfficers?.dean?.pfNo})
@@ -408,7 +408,7 @@ const SessionDetails = ({
               </Typography>
             </Grid>
 
-            <Grid item xs={12} md={4}>
+            <Grid item xs={12} md={3}>
               <Typography variant="subtitle2">Head of Department</Typography>
               <Typography variant="body1">
                 {session.principalOfficers?.hod?.name} ({session.principalOfficers?.hod?.pfNo})
@@ -418,13 +418,23 @@ const SessionDetails = ({
               </Typography>
             </Grid>
 
-            <Grid item xs={12} md={4}>
-              <Typography variant="subtitle2">Exam Officer</Typography>
+            <Grid item xs={12} md={3}>
+              <Typography variant="subtitle2">Department Exam Officer</Typography>
               <Typography variant="body1">
                 {session.principalOfficers?.examOfficer?.name} ({session.principalOfficers?.examOfficer?.pfNo})
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 {session.principalOfficers?.examOfficer?.department?.name}
+              </Typography>
+            </Grid>
+
+            <Grid item xs={12} md={3}>
+              <Typography variant="subtitle2">College Exam Officer</Typography>
+              <Typography variant="body1">
+                {session.principalOfficers?.collegeExamOfficer?.name} ({session.principalOfficers?.collegeExamOfficer?.pfNo})
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {session.principalOfficers?.collegeExamOfficer?.department?.name}
               </Typography>
             </Grid>
           </Grid>

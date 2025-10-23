@@ -46,7 +46,8 @@ const initialForm = {
   endDate: '',
   dean: '',
   hod: '',
-  eo: ''
+  eo: '',
+  ceo: '',
 };
 
 const steps = [
@@ -179,7 +180,8 @@ const SessionManager = () => {
     }
     if (!formData.dean) newErrors.dean = 'Dean is required';
     if (!formData.hod) newErrors.hod = 'HOD is required';
-    if (!formData.eo) newErrors.eo = 'Exam officer is required';
+    if (!formData.eo) newErrors.eo = 'Department exam officer is required';
+    if (!formData.ceo) newErrors.ceo = 'College exam officer is required';
     return newErrors;
   };
 
@@ -199,6 +201,7 @@ const SessionManager = () => {
       dean: formData.dean,
       hod: formData.hod,
       eo: formData.eo,
+      ceo: formData.ceo,
     };
 
     if (isEditing && editingSession) {
@@ -324,15 +327,16 @@ const SessionManager = () => {
 
   const beginEditSession = (session) => {
     if (!session) return;
-    setEditingSession(session);
-    setFormData({
-      sessionTitle: session.sessionTitle || '',
-      startDate: toDateInputValue(session.startDate),
-      endDate: toDateInputValue(session.endDate),
-      dean: session.principalOfficers?.dean?.pfNo || '',
-      hod: session.principalOfficers?.hod?.pfNo || '',
-      eo: session.principalOfficers?.examOfficer?.pfNo || '',
-    });
+  setEditingSession(session);
+  setFormData({
+    sessionTitle: session.sessionTitle || '',
+    startDate: toDateInputValue(session.startDate),
+    endDate: toDateInputValue(session.endDate),
+    dean: session.principalOfficers?.dean?.pfNo || '',
+    hod: session.principalOfficers?.hod?.pfNo || '',
+    eo: session.principalOfficers?.examOfficer?.pfNo || '',
+    ceo: session.principalOfficers?.collegeExamOfficer?.pfNo || '',
+  });
     setErrors({});
     setViewMode('form');
     setActiveTab(0);
@@ -583,7 +587,7 @@ const SessionManager = () => {
                     </Grid>
                   ) : (
                     <>
-                      <Grid item xs={12} md={12}>
+                      <Grid item xs={12} md={6}>
                         <Autocomplete // Dean
   options={lecturers}
   getOptionLabel={(option) => option.label}
@@ -612,7 +616,7 @@ const SessionManager = () => {
 />
                       </Grid>
                       
-                      <Grid item xs={12} md={12}>
+                      <Grid item xs={12} md={6}>
                         <Autocomplete // HOD
                           options={lecturers}
                           getOptionLabel={(option) => option.label}
@@ -630,8 +634,8 @@ const SessionManager = () => {
                         />
                       </Grid>
                       
-                      <Grid item xs={12} md={12}>
-                        <Autocomplete // EO
+                      <Grid item xs={12} md={6}>
+                        <Autocomplete // Department Exam Officer
                           options={lecturers} 
                           getOptionLabel={(option) => option.label}
                           loading={isLecturersLoading}
@@ -641,7 +645,25 @@ const SessionManager = () => {
                           }}
                           sx={{ width: '100%' }}
                           renderInput={(params) => (
-                            <TextField {...params} label="Exam Officer" error={!!errors.eo} helperText={errors.eo} required />
+                            <TextField {...params} label="Department Exam Officer" error={!!errors.eo} helperText={errors.eo} required />
+                          )}
+                          PopperComponent={(props) => <Popper {...props} style={{ width: 'fit-content' }} />}
+                          noOptionsText="No lecturers found"
+                        />
+                      </Grid>
+
+                      <Grid item xs={12} md={6}>
+                        <Autocomplete // College Exam Officer
+                          options={lecturers}
+                          getOptionLabel={(option) => option.label}
+                          loading={isLecturersLoading}
+                          value={lecturers.find(l => l.pfNo === formData.ceo) || null}
+                          onChange={(e, newValue) => {
+                            setFormData(prev => ({ ...prev, ceo: newValue ? newValue.pfNo : '' }));
+                          }}
+                          sx={{ width: '100%' }}
+                          renderInput={(params) => (
+                            <TextField {...params} label="College Exam Officer" error={!!errors.ceo} helperText={errors.ceo} required />
                           )}
                           PopperComponent={(props) => <Popper {...props} style={{ width: 'fit-content' }} />}
                           noOptionsText="No lecturers found"

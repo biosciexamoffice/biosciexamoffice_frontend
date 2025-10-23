@@ -39,43 +39,11 @@ import {
 import { useGetAllCoursesQuery } from '../../store/index'; // adjust if needed
 
 // ---- helpers ------------------------------------------------------------
-const CSV_HEADERS = [
-  'S/N',
-  'ID',           // from backend: row.portalId
-  'Course ID',    // = uamId
-  'Course Code',  // = code (cleaned)
-  'MatNo',
-  'FIRST NAME',
-  'Credit unit',
-  'Score Value',
-];
-
 const cleanCourseCode = (code = '') =>
   code.replace(/^\s*(?:B|C)-\s*/i, '').trim(); // remove leading B- or C-
 
 function toFullName(surname = '', firstname = '', middlename = '') {
   return [surname, firstname, middlename].filter(Boolean).join(' ').trim();
-}
-
-function toCsvRow(row, i) {
-  const sn = i + 1;
-  const id = row?.portalId ?? '';                             // ✅ backend computed
-  const courseId = row?.course?.uamId ?? '';                  // Course ID
-  const courseCode = cleanCourseCode(row?.course?.code ?? ''); // Course Code (cleaned)
-  const matNo = row?.student?.regNo ?? '';
-  const fullName = toFullName(row?.student?.surname, row?.student?.firstname, row?.student?.middlename);
-  const creditUnit = row?.course?.unit ?? '';
-  const score = row?.grandtotal ?? '';
-  return [sn, id, courseId, courseCode, matNo, fullName, creditUnit, score];
-}
-
-function toCSV(rows) {
-  const escape = (v) => {
-    const s = String(v ?? '');
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  const lines = [CSV_HEADERS, ...rows].map((r) => r.map(escape).join(','));
-  return lines.join('\n');
 }
 
 // ---- Main component ---------------------------------------------------------
@@ -89,6 +57,7 @@ export default function UamPortal() {
     resultType: 'CORE',
   });
   const [submitted, setSubmitted] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   const queryArgs = useMemo(() => {
     if (!submitted) return { skip: true };
@@ -151,13 +120,8 @@ export default function UamPortal() {
       ? `${o.cleanCode} — ${o.title || ''} (${o.level || ''} • ${o.unit ?? ''} unit${o.unit === 1 ? '' : 's'} • Sem ${o.semester ?? ''})`
       : '';
 
-  const csvContent = useMemo(() => {
-    if (!rows?.length) return '';
-    const payload = rows.map(toCsvRow);
-    return toCSV(payload);
-  }, [rows]);
-
-  const canDownload = !!csvContent && !isFetching && !isLoading;
+  const hasResults = Array.isArray(rows) && rows.length > 0;
+  const canDownload = submitted && hasResults && !isFetching && !isLoading && !downloading;
 
   // Handlers
   const onChange = (key) => (e) => setFilters((s) => ({ ...s, [key]: e.target.value }));
@@ -171,14 +135,53 @@ export default function UamPortal() {
     setFilters({ courseCode: '', session: '', semester: '', level: '', resultType: 'CORE' });
     setSubmitted(false);
   };
-  const onDownload = () => {
-    if (!csvContent) return;
-    const fname = `results_export_${filters.session || 'session'}_S${filters.semester || 'x'}_${filters.level || 'lvl'}_${filters.resultType || 'type'}.csv`;
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = fname; a.click();
-    URL.revokeObjectURL(url);
+  const onDownload = async () => {
+    if (!canDownload || downloading) return;
+    setDownloading(true);
+    try {
+      const params = new URLSearchParams({
+        session: filters.session,
+        semester: String(filters.semester),
+        level: filters.level,
+        resultType: filters.resultType,
+      });
+      if (filters.courseCode) {
+        params.set('courseCode', filters.courseCode);
+      }
+      const response = await fetch(`/api/results-export/download?${params.toString()}`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => response.statusText);
+        throw new Error(errorText || `Request failed with ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = URL.createObjectURL(blob);
+
+      let filename = `results_export_${filters.session || 'session'}_S${filters.semester || 'x'}_${filters.level || 'level'}_${(filters.resultType || 'type')}.csv`;
+      const disposition = response.headers.get('content-disposition');
+      if (disposition) {
+        const match = disposition.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i);
+        const extracted = match?.[1] || match?.[2];
+        if (extracted) {
+          filename = decodeURIComponent(extracted);
+        }
+      }
+
+      const anchor = document.createElement('a');
+      anchor.href = downloadUrl;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(downloadUrl);
+    } catch (err) {
+      console.error('Failed to download CSV export:', err);
+      alert('Failed to download CSV. Please try again.');
+    } finally {
+      setDownloading(false);
+    }
   };
 
   return (

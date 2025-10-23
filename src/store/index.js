@@ -129,6 +129,7 @@ export  {
   useLazySearchMetricsQuery,
   useUpdateMetricsMutation,
   useRecomputeAcademicMetricsMutation,
+  useAnalyzeOldMetricsMutation,
    useUploadOldMetricsMutation,
 } from './api/academicMetricsApi'
 

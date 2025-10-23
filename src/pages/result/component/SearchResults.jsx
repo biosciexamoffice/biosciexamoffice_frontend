@@ -303,9 +303,9 @@ const SearchResults = () => {
   const buildHeaderFromRow = (row) => ({
     university: 'JOSEPH SARWUAN TARKA UNIVERSITY',
     address: 'P.M.B 2373, MAKURDI',
-    college: 'COLLEGE OF BIOLOGICAL SCIENCES',
-    department: 'DEPARTMENT OF BIOCHEMISTRY',
-    programme: 'B. SC. BIOCHEMISTRY',
+    college: row?.college || row?.metadata?.college || 'COLLEGE OF BIOLOGICAL SCIENCES',
+    department: row?.department || row?.metadata?.department || 'DEPARTMENT OF BIOCHEMISTRY',
+    programme: row?.programme || row?.metadata?.programme || 'B. SC. BIOCHEMISTRY',
     session: row.session,
     semester: row.semester,
     level: row.level,
@@ -324,6 +324,20 @@ const SearchResults = () => {
     });
 
     // Build the student's courses list for the dialog
+    if (comp) {
+      setDialogRow((prev) => {
+        if (!prev) return prev;
+        const meta = comp.metadata || {};
+        return {
+          ...prev,
+          metadata: meta,
+          college: prev.college || comp.college || meta.college || null,
+          department: prev.department || comp.department || meta.department || null,
+          programme: prev.programme || comp.programme || meta.programme || null,
+        };
+      });
+    }
+
     if (comp?.students?.length && comp?.courses?.length) {
       const match = comp.students.find((s) => s.regNo === row.regNo);
       if (match) {

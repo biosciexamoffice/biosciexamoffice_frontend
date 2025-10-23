@@ -1,367 +1,1205 @@
 // src/utils/useBulkResultsPDFGenerator.js
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import loadLogoBase64 from './loadLogoBase64.js';
 
-/**
- * Types you can pass:
- * types = ['summary', 'main', 'passfail']
- *
- * inputs:
- *   header = { university, address, college, department, programme, logoUrl }
- *   job = {
- *     session: '2023/2024',
- *     semester: 1,                     // 1|2
- *     levels: ['100','200','300'],     // strings or numbers, we'll sort asc
- *     types: ['summary','main','passfail'],
- *     // fetcher: async (level) => { students, courses } from /academic-metrics/comprehensive
- *     //        same shape as your getComprehensiveResults controller
- *     fetcher: (level) => Promise<{ students: [], courses: [] }>
- *   }
- */
+const LETTER_GRADES = ['A', 'B', 'C', 'D', 'E', 'F'];
 
-const semesterText = (s) => (Number(s) === 1 ? 'FIRST' : 'SECOND');
+const approvedCoursesCache = new Map();
 
-const loadImageAsBase64 = async (url) => {
-  if (!url) return null;
-  const res = await fetch(url);
-  const blob = await res.blob();
-  return new Promise((resolve) => {
-    const r = new FileReader();
-    r.onloadend = () => resolve(r.result);
-    r.readAsDataURL(blob);
-  });
+const normalizeCourseId = (value) => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') return String(value);
+  if (typeof value === 'object') {
+    if (typeof value.toHexString === 'function') return value.toHexString();
+    if (typeof value.toString === 'function') return value.toString();
+  }
+  return String(value);
 };
 
-// A clean, consistent page frame
-function drawHeaderFooterAndBorder(doc, meta) {
-  const pw = doc.internal.pageSize.getWidth();
-  const ph = doc.internal.pageSize.getHeight();
-  const lm = 10, tm = 10, rm = 10, bm = 10;
+const normalizeCourseCode = (code = '') =>
+  String(code)
+    .trim()
+    .replace(/^[A-Z]-/, '')
+    .replace(/\s+/g, '')
+    .toUpperCase();
 
-  // border
-  doc.setLineWidth(0.4);
-  doc.rect(lm, tm, pw - lm - rm, ph - tm - bm);
+const normalizeRegNo = (value) => String(value || '').trim().toUpperCase();
+const cleanCourseCode = (code = '') => String(code || '').replace(/^(?:C-|B-)/i, '').trim();
+const pad2 = (n) => String(Number.isFinite(+n) ? Math.round(+n) : n).padStart(2, '0');
+const gradeFromScore = (score) => {
+  const s = Number(score) || 0;
+  if (s >= 70) return 'A';
+  if (s >= 60) return 'B';
+  if (s >= 50) return 'C';
+  if (s >= 45) return 'D';
+  if (s >= 40) return 'E';
+  return 'F';
+};
 
-  // header
-  doc.setFont('times', 'bold');
-  doc.setFontSize(12);
-  doc.text('JOSEPH SARWUAN TARKA UNIVERSITY', pw / 2, 16, { align: 'center' });
-  doc.setFont('times', 'normal');
-  doc.setFontSize(10);
-  doc.text('P.M.B 2373, MAKURDI', pw / 2, 21, { align: 'center' });
+const resolveOfficerName = (value, fallback) => {
+  if (!value) return fallback;
+  if (typeof value === 'string') return value;
+  return value.name || fallback;
+};
 
-  // logo at top-left (FIX: use meta.logoBase64)
-  if (meta?.logoBase64) {
-    doc.addImage(meta.logoBase64, 'JPEG', lm + 2, tm + 2, 16, 16);
+const formatNameFirstComma = (fullName = '') => {
+  const parts = String(fullName).trim().split(/\s+/);
+  if (!parts.length) return '';
+  if (parts.length === 1) return parts[0].toUpperCase();
+  const first = parts[0].toUpperCase();
+  const others = parts.slice(1).join(' ').toUpperCase();
+  return `${first}, ${others}`;
+};
+
+const buildLevelMeta = (header, payload, job) => {
+  const meta = payload?.metadata || {};
+  return {
+    college: meta.college || payload?.college || header.college,
+    department: meta.department || payload?.department || header.department,
+    programme: meta.programme || payload?.programme || header.programme,
+    dean: resolveOfficerName(meta.dean || payload?.dean, 'Dean'),
+    headOfDept: resolveOfficerName(meta.headOfDepartment || payload?.headOfDept, 'Head of Department'),
+    deptExamOfficer: resolveOfficerName(meta.departmentExamOfficer || payload?.deptExamOfficer, 'Department Exam Officer'),
+    collegeExamOfficer: resolveOfficerName(meta.collegeExamOfficer || payload?.collegeExamOfficer, 'College Exam Officer'),
+    session: job.session,
+    semester: job.semester,
+  };
+};
+
+const buildRegistrationsMap = (registrationsByCourse = {}) => {
+  const map = new Map();
+  Object.entries(registrationsByCourse).forEach(([courseId, list]) => {
+    const set = new Set((Array.isArray(list) ? list : []).map(normalizeRegNo));
+    map.set(String(courseId), set);
+  });
+  return map;
+};
+
+const normalizeCourseKey = (course) => {
+  const normalizedId = normalizeCourseId(course?.id ?? course?._id);
+  if (normalizedId) return `id::${normalizedId}`;
+  const normalizedCode = normalizeCourseCode(course?.code);
+  if (normalizedCode) return `code::${normalizedCode}`;
+  return null;
+};
+
+const dedupeCourses = (courses = []) => {
+  const seen = new Map();
+  (courses || []).forEach((course) => {
+    if (!course) return;
+    const key = normalizeCourseKey(course);
+    if (!key) return;
+    if (!seen.has(key)) {
+      seen.set(key, { ...course, id: normalizeCourseId(course?.id ?? course?._id) || course?.id });
+    }
+  });
+  return Array.from(seen.values());
+};
+
+const sortCoursesByUnitThenCode = (courses = []) =>
+  [...(courses || [])].sort((a, b) => {
+    const unitA = Number(a?.unit ?? 0);
+    const unitB = Number(b?.unit ?? 0);
+    if (unitA !== unitB) return unitA - unitB;
+    return String(a?.code || '').localeCompare(String(b?.code || ''), undefined, { numeric: true });
+  });
+
+const combineCoursesByPreference = (preferred = [], secondary = []) => {
+  const result = [];
+  const seen = new Set();
+  const pushList = (list) => {
+    (list || []).forEach((course) => {
+      if (!course) return;
+      const key = normalizeCourseKey(course);
+      if (key && seen.has(key)) return;
+      if (key) seen.add(key);
+      result.push({ ...course, id: normalizeCourseId(course?.id ?? course?._id) || course?.id });
+    });
+  };
+  pushList(preferred || []);
+  pushList(secondary || []);
+  return result;
+};
+
+const resolveApiBaseUrl = () => {
+  if (typeof window !== 'undefined') {
+    if (window.__ELECTRON_API_BASE) {
+      return window.__ELECTRON_API_BASE;
+    }
+    if (window.__ELECTRON_DESKTOP__?.apiBase) {
+      return window.__ELECTRON_DESKTOP__.apiBase;
+    }
+  }
+  if (typeof import.meta !== 'undefined' && import.meta?.env?.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  return 'http://localhost:10000/api';
+};
+
+const fetchApprovedCoursesForTerm = async (session, semester, level) => {
+  if (!session || semester === undefined || semester === null || level === undefined || level === null) {
+    return [];
   }
 
-  // institution lines
-  doc.setFont('times', 'bold');
-  doc.setFontSize(10.5);
-  doc.text(meta?.college || 'COLLEGE OF BIOLOGICAL SCIENCES', pw / 2, 28, { align: 'center' });
-  doc.text(meta?.department || 'DEPARTMENT OF BIOCHEMISTRY', pw / 2, 34, { align: 'center' });
-  doc.setFont('times', 'normal');
-  doc.setFontSize(10);
-  doc.text(
-    `SESSION: ${meta.session} • ${semesterText(meta.semester)} SEMESTER`,
-    pw / 2, 40, { align: 'center' }
-  );
-  if (meta.programme) {
-    doc.setFont('times', 'bold');
-    doc.text(`PROGRAMME: ${meta.programme}`, pw / 2, 46, { align: 'center' });
+  const cacheKey = `${session}::${semester}::${level}`;
+  if (approvedCoursesCache.has(cacheKey)) {
+    return approvedCoursesCache.get(cacheKey);
   }
 
-  // footer page number
-  doc.setFont('times', 'normal');
-  doc.setFontSize(9);
-  const pageNo = doc.internal.getCurrentPageInfo().pageNumber;
-  doc.text(String(pageNo), pw / 2, ph - 6, { align: 'center' });
+  const baseUrlRaw = resolveApiBaseUrl();
+  const baseUrl = baseUrlRaw.endsWith('/') ? baseUrlRaw.slice(0, -1) : baseUrlRaw;
+  const url = new URL(`${baseUrl}/approvedCourses`);
+  url.searchParams.set('session', session);
+  url.searchParams.set('semester', Number(semester));
+  url.searchParams.set('level', Number(level));
 
-  // return inner content top
-  return 54; // recommended startY for content
-}
+  const headers = typeof Headers !== 'undefined' ? new Headers() : null;
+  const fetchOptions = { method: 'GET' };
+  if (headers) {
+    headers.set('Accept', 'application/json');
+  }
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  if (token) {
+    if (headers) {
+      headers.set('Authorization', `Bearer ${token}`);
+    } else {
+      fetchOptions.headers = {
+        Accept: 'application/json',
+        Authorization: `Bearer ${token}`,
+      };
+    }
+  }
 
-// ---------- DATA HELPERS ----------
+  if (headers && !fetchOptions.headers) {
+    fetchOptions.headers = headers;
+  } else if (!fetchOptions.headers) {
+    fetchOptions.headers = { Accept: 'application/json' };
+  }
 
-// Prepare grade summary per course for a level
-function computeGradeSummaryForLevel({ students, courses }) {
-  // Create a bucket per course
-  const byCourse = courses.map(c => ({
-    id: c.id,
-    code: c.code,
-    title: c.title,
-    unit: c.unit,
-    A: 0, B: 0, C: 0, D: 0, E: 0, F: 0,
-    Pass: 0, Fail: 0, Registered: 0
-  }));
+  const promise = (async () => {
+    try {
+      const response = await fetch(url.toString(), fetchOptions);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch approved courses (${response.status})`);
+      }
+      const data = await response.json();
+      return Array.isArray(data) ? data : [];
+    } catch (error) {
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('Unable to fetch approved courses for PDF export:', error);
+      }
+      return [];
+    }
+  })();
 
-  const idx = new Map(byCourse.map((c, i) => [c.id, i]));
+  approvedCoursesCache.set(cacheKey, promise);
+  return promise;
+};
 
-  students.forEach(s => {
-    courses.forEach(c => {
-      const r = s.results?.[c.id];
-      if (!r) return;
-      const i = idx.get(c.id);
-      byCourse[i].Registered += 1;
-      const g = String(r.grade || '').toUpperCase();
-      if (['A','B','C','D','E','F'].includes(g)) byCourse[i][g] += 1;
-      if (g === 'F') byCourse[i].Fail += 1; else byCourse[i].Pass += 1;
+const splitCoursesByApproval = (courses = [], approvedDocs = []) => {
+  const approvedById = new Map();
+  const approvedByCode = new Map();
+
+  (approvedDocs || []).forEach((doc) => {
+    if (!doc) return;
+    (doc.courses || []).forEach((course) => {
+      if (!course) return;
+      const normalizedId = normalizeCourseId(course?._id || course?.id);
+      const normalizedCode = normalizeCourseCode(course?.code);
+      const entry = {
+        ...course,
+        id: normalizedId || course?.id,
+      };
+      if (normalizedId && !approvedById.has(normalizedId)) {
+        approvedById.set(normalizedId, entry);
+      }
+      if (normalizedCode && !approvedByCode.has(normalizedCode)) {
+        approvedByCode.set(normalizedCode, entry);
+      }
     });
   });
 
-  return byCourse;
-}
+  const regularCourses = [];
+  const carryOverCourses = [];
 
-// Split students into pass/fail
-function splitPassFail(students) {
-  const pass = [];
-  const fail = [];
-  students.forEach(s => {
-    const remark = String(s.remarks || '').toLowerCase();
-    if (remark === 'pass') pass.push(s);
-    else fail.push(s);
+  (courses || []).forEach((course) => {
+    if (!course) return;
+    const normalizedId = normalizeCourseId(course?.id || course?._id);
+    const normalizedCode = normalizeCourseCode(course?.code);
+    const approved =
+      (normalizedId && approvedById.get(normalizedId)) ||
+      (normalizedCode && approvedByCode.get(normalizedCode));
+    if (approved) {
+      regularCourses.push({
+        ...course,
+        id: normalizedId || course?.id,
+        option: approved.option ?? course?.option,
+      });
+    } else {
+      carryOverCourses.push({
+        ...course,
+        id: normalizedId || course?.id,
+      });
+    }
   });
-  return { pass, fail };
-}
 
-const padScore = (n) => {
-  const v = Math.round(Number(n || 0));
-  if (!Number.isFinite(v)) return '';
-  return v < 10 ? `0${v}` : String(v);
-};
-const gradeToPoint = (g) => {
-  const x = String(g || '').toUpperCase();
-  return x === 'A' ? 5 : x === 'B' ? 4 : x === 'C' ? 3 : x === 'D' ? 2 : x === 'E' ? 1 : x === 'F' ? 0 : null;
+  return {
+    regularCourses: dedupeCourses(regularCourses),
+    carryOverCourses: dedupeCourses(carryOverCourses),
+  };
 };
 
-// ---------- SECTION RENDERERS (all landscape-safe) ----------
+const findCourseResult = (student, course) => {
+  const eager = [
+    course?.id,
+    course?._id,
+    String(course?.id ?? ''),
+    String(course?._id ?? ''),
+    course?.code,
+    String(course?.code ?? '').toUpperCase(),
+  ].filter(Boolean);
+  for (const key of eager) {
+    if (student?.results && student.results[key]) {
+      return student.results[key];
+    }
+  }
+  const values = Object.values(student?.results || {});
+  return values.find((entry) => {
+    if (!entry) return false;
+    if (entry.courseId && String(entry.courseId) === String(course?.id || course?._id)) return true;
+    if (entry.courseCode && String(entry.courseCode).toUpperCase() === String(course?.code || '').toUpperCase()) return true;
+    return false;
+  }) || null;
+};
 
-function renderLevelTitle(doc, y, level) {
+const computeGradeSummaryRows = (students, courses, regsMap) => {
+  return courses.map((course, index) => {
+    const regSet = regsMap.get(String(course.id)) || regsMap.get(String(course._id)) || new Set();
+    const gradeCounts = { A: 0, B: 0, C: 0, D: 0, E: 0, F: 0 };
+    let totalExamined = 0;
+
+    students.forEach((student) => {
+      const result = findCourseResult(student, course);
+      if (!result) return;
+      totalExamined += 1;
+      let grade = String(result.grade || '').toUpperCase();
+      if (!LETTER_GRADES.includes(grade)) {
+        grade = gradeFromScore(result.grandtotal);
+      }
+      if (!LETTER_GRADES.includes(grade)) {
+        grade = 'F';
+      }
+      gradeCounts[grade] += 1;
+    });
+
+    const passCount = gradeCounts.A + gradeCounts.B + gradeCounts.C + gradeCounts.D + gradeCounts.E;
+    const percentagePass = totalExamined
+      ? ((passCount / totalExamined) * 100).toFixed(2)
+      : '0.00';
+
+    const totalRegistered = regSet.size || Math.max(totalExamined, 0);
+
+    return {
+      sn: index + 1,
+      code: cleanCourseCode(course.code),
+      title: course.title || '',
+      unit: course.unit ?? '',
+      totalRegistered,
+      totalExamined,
+      ...gradeCounts,
+      percentagePass,
+    };
+  });
+};
+
+const drawGradeSummaryHeader = (doc, meta, formInfo, logoBase64, level) => {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const leftMargin = 10;
+
   doc.setFont('times', 'bold');
   doc.setFontSize(12);
-  doc.text(`LEVEL ${level}`, 12, y);
-  return y + 6;
-}
+  doc.text('JOSEPH SARWUAN TARKA UNIVERSITY, P. M. B. 2373, MAKURDI', pageWidth / 2, 15, { align: 'center' });
 
-// 1) Grade Summary
-function renderGradeSummary(doc, startY, rows) {
-  const head = [[
-    'Code', 'Title', 'Unit', 'A', 'B', 'C', 'D', 'E', 'F',
-    'Pass', 'Fail', 'Registered'
-  ]];
-  const body = rows.map(r => ([
-    r.code || '', r.title || '', r.unit ?? '',
-    r.A, r.B, r.C, r.D, r.E, r.F,
-    r.Pass, r.Fail, r.Registered
-  ]));
+  if (logoBase64) {
+    const logoW = 15;
+    const logoH = 15;
+    const logoX = (pageWidth - logoW) / 2;
+    doc.addImage(logoBase64, 'JPEG', logoX, 18, logoW, logoH);
+  }
+
+  doc.setFontSize(11);
+  doc.text('SUMMARY OF COURSES AND GRADES DISTRIBUTION', pageWidth / 2, 38, { align: 'center' });
+
+  doc.setFont('times', 'normal');
+  doc.setFontSize(8);
+
+  const metaStartY = 45;
+  const lineGap = 7;
+  const leftLabelX = leftMargin;
+  const leftValueX = leftLabelX + 35;
+  const rightLabelX = pageWidth / 2 + 90;
+  const rightValueX = rightLabelX + 28;
+
+  const leftPairs = [
+    ['College:', meta.college || 'College Not Provided'],
+    ['Department:', meta.department || 'Department Not Provided'],
+    ['Programme:', meta.programme || 'Programme Not Provided'],
+  ];
+  const rightPairs = [
+    ['Level:', String(formInfo.level ?? '')],
+    ['Semester:', Number(formInfo.semester) === 1 ? 'First' : 'Second'],
+    ['Session:', String(formInfo.session ?? '')],
+  ];
+
+  leftPairs.forEach(([label, value], i) => {
+    const y = metaStartY + i * lineGap;
+    doc.text(label, leftLabelX, y);
+    doc.text(String(value), leftValueX, y);
+  });
+
+  rightPairs.forEach(([label, value], i) => {
+    const y = metaStartY + i * lineGap;
+    doc.text(label, rightLabelX, y);
+    doc.text(String(value), rightValueX, y);
+  });
+
+  doc.setFont('times', 'bold');
+  doc.setFontSize(12);
+};
+
+const renderGradeSummarySection = ({
+  doc,
+  logoBase64,
+  meta,
+  formInfo,
+  level,
+  courses,
+  students,
+  regsMap,
+  rows,
+}) => {
+  const courseList = Array.isArray(courses) ? courses : [];
+  const summaryRows = rows ?? computeGradeSummaryRows(students, courseList, regsMap);
+  if (!summaryRows.length) {
+    return false;
+  }
+  const tableTopY = 60;
+  const leftMargin = 10;
+  const rightMargin = 10;
 
   autoTable(doc, {
-    startY,
-    head, body,
-    margin: { left: 10, right: 10 },
-    styles: { font: 'times', fontSize: 9, cellPadding: 2, lineWidth: 0.1, textColor: [0,0,0] },
-    headStyles: { fillColor: [255,255,255], textColor: [0,0,0], fontStyle: 'bold' },
+    startY: tableTopY,
+    head: [[
+      { content: 'S/N', rowSpan: 2 },
+      { content: 'COURSE CODE', rowSpan: 2 },
+      { content: 'COURSE TITLE', rowSpan: 2 },
+      { content: 'UNIT', rowSpan: 2 },
+      { content: 'TOTAL REGISTERED', rowSpan: 2 },
+      { content: 'TOTAL EXAMINED', rowSpan: 2 },
+      { content: 'LETTER GRADES', colSpan: 6, styles: { halign: 'center' } },
+      { content: 'PERCENTAGE PASS', rowSpan: 2 },
+    ], [
+      { content: 'A', styles: { halign: 'center' } },
+      { content: 'B', styles: { halign: 'center' } },
+      { content: 'C', styles: { halign: 'center' } },
+      { content: 'D', styles: { halign: 'center' } },
+      { content: 'E', styles: { halign: 'center' } },
+      { content: 'F', styles: { halign: 'center' } },
+    ]],
+    body: summaryRows.map((row) => [
+      row.sn,
+      row.code,
+      row.title,
+      row.unit,
+      row.totalRegistered,
+      row.totalExamined,
+      row.A,
+      row.B,
+      row.C,
+      row.D,
+      row.E,
+      row.F,
+      row.percentagePass,
+    ]),
+    theme: 'grid',
+    styles: {
+      font: 'times',
+      fontSize: 8,
+      cellPadding: 1.5,
+      overflow: 'linebreak',
+      valign: 'middle',
+      lineWidth: 0.1,
+      lineColor: [0, 0, 0],
+      textColor: [0, 0, 0],
+    },
+    headStyles: {
+      fillColor: [255, 255, 255],
+      textColor: [0, 0, 0],
+      fontStyle: 'bold',
+      fontSize: 8,
+      lineWidth: 0.1,
+    },
     columnStyles: {
-      0: { cellWidth: 22 },      // code
-      1: { cellWidth: 92 },      // title
-      2: { cellWidth: 10, halign: 'center' },
-      3: { cellWidth: 10, halign: 'center' },
-      4: { cellWidth: 10, halign: 'center' },
-      5: { cellWidth: 10, halign: 'center' },
-      6: { cellWidth: 10, halign: 'center' },
-      7: { cellWidth: 10, halign: 'center' },
-      8: { cellWidth: 12, halign: 'center' },  // Pass
-      9: { cellWidth: 12, halign: 'center' },  // Fail
-      10:{ cellWidth: 18, halign: 'center' },  // Registered
+      0: { cellWidth: 8, halign: 'center' },
+      1: { cellWidth: 32 },
+      2: { cellWidth: 110 },
+      3: { cellWidth: 12, halign: 'center' },
+      4: { cellWidth: 30, halign: 'center' },
+      5: { cellWidth: 24, halign: 'center' },
+      6: { cellWidth: 9, halign: 'center' },
+      7: { cellWidth: 9, halign: 'center' },
+      8: { cellWidth: 9, halign: 'center' },
+      9: { cellWidth: 9, halign: 'center' },
+      10: { cellWidth: 9, halign: 'center' },
+      11: { cellWidth: 9, halign: 'center' },
+      12: { cellWidth: 35, halign: 'center' },
     },
-    // FIX: use doc.__meta instead of data.settings._meta
+    margin: { left: leftMargin, right: rightMargin, top: tableTopY, bottom: 15 },
     didDrawPage: (data) => {
-      drawHeaderFooterAndBorder(data.doc, data.doc.__meta);
+      drawGradeSummaryHeader(data.doc, meta, formInfo, logoBase64, level);
     },
   });
-}
+  return true;
+};
 
-// 2) Main Result (compact)
-function renderMainResult(doc, startY, students, courses) {
-  // build header
-  const profileCols = ['S/No.', 'Reg No / Name'];
-  const courseCols = courses.map(c => {
-    const m = (c.code || '').match(/([A-Z]{3})\s*(\d{3})/);
-    const d = m?.[1] || (c.code || '').slice(0,3);
-    const n = m?.[2] || '';
-    return `${d}\n${n}\n(${c.unit ?? ''})`;
+const buildRemarks = (student, regularCourses, carryOverCourses, regsMap) => {
+  const failures = [];
+  const regUpper = normalizeRegNo(student.regNo);
+  const combined = [
+    ...(Array.isArray(regularCourses) ? regularCourses : []),
+    ...(Array.isArray(carryOverCourses) ? carryOverCourses : []),
+  ];
+  combined.forEach((course) => {
+    const regSet = regsMap.get(String(course.id)) || regsMap.get(String(course._id));
+    const isRegistered = regSet ? regSet.has(regUpper) : true;
+    if (!isRegistered) return;
+    const result = findCourseResult(student, course);
+    const grade = result ? (result.grade || gradeFromScore(result.grandtotal)) : 'F';
+    const normalizedGrade = String(grade || '').toUpperCase();
+    if (normalizedGrade === 'F') {
+      const unit = course?.unit ?? '';
+      failures.push(`${unit}${cleanCourseCode(course.code)}`);
+    }
   });
+  return failures.length ? `Repeat ${failures.join(' ')}` : 'Pass';
+};
+
+const drawMainResultsHeaderFooter = (doc, meta, formInfo, logoBase64, level) => {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const leftMargin = 10;
+
+  doc.setDrawColor(0, 0, 0);
+  doc.setLineWidth(0.6);
+  doc.rect(5, 5, pageWidth - 10, pageHeight - 10);
+
+  doc.setFont('times', 'bold');
+  doc.setFontSize(12);
+  doc.text('JOSEPH SARWUAN TARKA UNIVERSITY, P. M. B. 2373, MAKURDI', pageWidth / 2, 15, { align: 'center' });
+
+  if (logoBase64) {
+    const logoWidth = 15;
+    const logoHeight = 15;
+    const logoX = (pageWidth - logoWidth) / 2;
+    const logoY = 18;
+    doc.addImage(logoBase64, 'JPEG', logoX, logoY, logoWidth, logoHeight);
+  }
+
+  doc.text('EXAMINATION RESULT SHEET', pageWidth / 2, 38, { align: 'center' });
+
+  doc.setFont('times', 'normal');
+  doc.setFontSize(9);
+  const metaStartY = 45;
+  const metaGap = 7;
+  const leftLabelX = leftMargin;
+  const leftValueX = leftLabelX + 28;
+  const rightLabelX = pageWidth / 2 + 105;
+  const rightValueX = rightLabelX + 20;
+
+  const leftPairs = [
+    ['College:', meta.college || 'College Not Provided'],
+    ['Department:', meta.department || 'Department Not Provided'],
+    ['Programme:', meta.programme || 'Programme Not Provided'],
+  ];
+
+  const rightPairs = [
+    ['Level:', formInfo.level],
+    ['Semester:', Number(formInfo.semester) === 1 ? 'First' : 'Second'],
+    ['Session:', formInfo.session],
+  ];
+
+  leftPairs.forEach(([label, value], idx) => {
+    const y = metaStartY + idx * metaGap;
+    doc.text(label, leftLabelX, y);
+    doc.text(String(value ?? ''), leftValueX, y);
+  });
+
+  rightPairs.forEach(([label, value], idx) => {
+    const y = metaStartY + idx * metaGap;
+    doc.text(label, rightLabelX, y);
+    doc.text(String(value ?? ''), rightValueX, y);
+  });
+
+  const footerStartY = pageHeight - 40;
+  const footerGap = 14;
+  const leftFooterX = leftMargin;
+  const rightFooterX = pageWidth / 2 + 60;
+
+  doc.setFont('times', 'normal');
+  doc.setFontSize(9);
+  doc.text(`Dept. Exam. Officer: ${meta.deptExamOfficer || 'Department Exam Officer'}`, leftFooterX, footerStartY);
+  doc.text(`College Exam. Officer: ${meta.collegeExamOfficer || 'College Exam Officer'}`, leftFooterX, footerStartY + footerGap);
+  doc.text(`Head of Dept: ${meta.headOfDept || 'Head of Department'}`, rightFooterX, footerStartY);
+  doc.text(`Dean: ${meta.dean || 'Dean'}`, rightFooterX, footerStartY + footerGap);
+};
+
+const renderMainResultSection = ({
+  doc,
+  logoBase64,
+  meta,
+  formInfo,
+  level,
+  watermarkText,
+  courses,
+  carryOverCourses = [],
+  students,
+  regsMap,
+}) => {
+  const regularCourses = sortCoursesByUnitThenCode(dedupeCourses(Array.isArray(courses) ? courses : []));
+  const carryCourses = sortCoursesByUnitThenCode(dedupeCourses(Array.isArray(carryOverCourses) ? carryOverCourses : []));
+
+  if (!students.length || !regularCourses.length) {
+    return false;
+  }
+  const tableTopY = 60;
+  const leftMargin = 10;
+  const rightMargin = 10;
+  const tableBottomPadding = 45;
+
+  const sortedStudents = [...students].sort((a, b) => {
+    const regA = String(a.regNo || '');
+    const regB = String(b.regNo || '');
+    return regA.localeCompare(regB, undefined, { numeric: true });
+  });
+
+  const buildCarryOverCell = (student) => {
+    const regUpper = normalizeRegNo(student.regNo);
+    return carryCourses
+      .map((course) => {
+        const regSet = regsMap.get(String(course.id)) || regsMap.get(String(course._id));
+        const isRegistered = regSet ? regSet.has(regUpper) : true;
+        if (!isRegistered) return null;
+        const result = findCourseResult(student, course);
+        const code = cleanCourseCode(course.code).replace(/\s/g, '');
+        const unit = course?.unit ?? '';
+        if (result) {
+          const score = pad2(result.grandtotal || 0);
+          const grade = result.grade || gradeFromScore(result.grandtotal);
+          return `${unit}${code}\u00A0${score}${String(grade || '').toUpperCase()}`;
+        }
+        return `${unit}${code}\u00A000F`;
+      })
+      .filter(Boolean)
+      .join(' ');
+  };
+
+  const buildStudentRow = (student, index) => {
+    const regUpper = normalizeRegNo(student.regNo);
+
+    const courseCells = regularCourses.map((course) => {
+      const regSet = regsMap.get(String(course.id)) || regsMap.get(String(course._id));
+      const isRegistered = regSet ? regSet.has(regUpper) : true;
+      const isElective = String(course?.option || '').toUpperCase() === 'E';
+      if (!isRegistered) return isElective ? '-' : 'NR';
+      const result = findCourseResult(student, course);
+      if (result) {
+        const score = pad2(result.grandtotal || 0);
+        const grade = result.grade || gradeFromScore(result.grandtotal);
+        return `${score}${String(grade || '').toUpperCase()}`;
+      }
+      return '00F';
+    });
+
+    const carryOver = buildCarryOverCell(student);
+    const current = student.currentMetrics || {};
+    const previous = student.previousMetrics || {};
+    const cumulative = student.metrics || {};
+    const remarks = student.remarks || buildRemarks(student, regularCourses, carryCourses, regsMap);
+
+    const formatName = (fullName = '') => {
+      const parts = fullName.trim().split(/\s+/);
+      if (!parts.length) return '';
+      const surname = parts[0].toUpperCase();
+      const others = parts.slice(1).join(' ').toUpperCase();
+      return others ? `${surname}, ${others}` : surname;
+    };
+
+    return [
+      index + 1,
+      `${student.regNo}\n${formatName(student.fullName || '')}`,
+      ...courseCells,
+      carryOver,
+      current.TCC ?? 0,
+      current.TCE ?? 0,
+      current.TPE ?? 0,
+      (current.GPA ?? 0).toFixed(2),
+      previous.CCC ?? 0,
+      previous.CCE ?? 0,
+      previous.CPE ?? 0,
+      (previous.CGPA ?? 0).toFixed(2),
+      cumulative.CCC ?? 0,
+      cumulative.CCE ?? 0,
+      cumulative.CPE ?? 0,
+      (cumulative.CGPA ?? 0).toFixed(2),
+      remarks,
+    ];
+  };
+
+  const profileCols = ['S/No.', 'Reg. Number/Name'];
+  const courseCols = regularCourses.map((course) => {
+    const code = cleanCourseCode(course.code);
+    const match = code.match(/^(.*?)(\d{3})$/);
+    if (match) {
+      const prefix = match[1].trim();
+      const num = match[2];
+      return `${prefix}\n${num}\n(${course.unit ?? ''})`;
+    }
+    return `${code}\n(${course.unit ?? ''})`;
+  });
+  const othersCols = ['Carry over/Others'];
   const currentCols = ['TCC', 'TCE', 'TPE', 'GPA'];
+  const previousCols = ['CCC', 'CCE', 'CPE', 'CGPA'];
+  const cumulativeCols = ['CCC', 'CCE', 'CPE', 'CGPA'];
   const finalCols = ['Remarks'];
+
   const head = [
     [
       { content: 'Profile', colSpan: profileCols.length, styles: { halign: 'left' } },
       { content: 'Courses', colSpan: courseCols.length, styles: { halign: 'center' } },
+      { content: 'Others', colSpan: othersCols.length, styles: { halign: 'center' } },
       { content: 'Current', colSpan: currentCols.length, styles: { halign: 'center' } },
-      { content: '', colSpan: finalCols.length, styles: { halign: 'center' } },
+      { content: 'Previous', colSpan: previousCols.length, styles: { halign: 'center' } },
+      { content: 'Cumulative', colSpan: cumulativeCols.length, styles: { halign: 'center' } },
+      { content: '', colSpan: finalCols.length },
     ],
-    [...profileCols, ...courseCols, ...currentCols, ...finalCols],
+    [
+      ...profileCols,
+      ...courseCols,
+      ...othersCols,
+      ...currentCols,
+      ...previousCols,
+      ...cumulativeCols,
+      ...finalCols,
+    ],
   ];
 
-  // body
-  const sorted = [...students].sort((a,b) =>
-    String(a.regNo).localeCompare(String(b.regNo), undefined, { numeric: true })
-  );
-  const body = sorted.map((s, i) => {
-    const courseScores = courses.map(c => {
-      const r = s.results?.[c.id];
-      if (!r) return 'NR';
-      return `${padScore(r.grandtotal)}${String(r.grade || '').toUpperCase()}`;
-    });
-    return [
-      i+1,
-      `${s.regNo}\n${s.fullName}`,
-      ...courseScores,
-      s.currentMetrics?.TCC ?? 0,
-      s.currentMetrics?.TCE ?? 0,
-      s.currentMetrics?.TPE ?? 0,
-      (s.currentMetrics?.GPA ?? 0).toFixed(2),
-      s.remarks || (s.metrics?.CGPA >= 1.0 ? 'Pass' : ''),
-    ];
-  });
+  const carryOverIndex = profileCols.length + courseCols.length;
+  const remarksIndex = profileCols.length + courseCols.length + othersCols.length + currentCols.length + previousCols.length + cumulativeCols.length;
 
-  const carryIndex = profileCols.length + courseCols.length;
-
-  autoTable(doc, {
-    startY,
-    head,
-    body,
-    margin: { left: 10, right: 10 },
-    styles: {
-      font: 'times', fontSize: 7.6, cellPadding: 1, lineWidth: 0.1, textColor: [0,0,0], valign: 'middle',
-    },
-    headStyles: { fillColor: [255,255,255], textColor: [0,0,0], fontStyle: 'bold' },
-    columnStyles: {
-      0: { cellWidth: 8 },
-      1: { cellWidth: 40 },
-      [carryIndex - 1]: { cellWidth: 16 },
-    },
-    // FIX: use doc.__meta
-    didDrawPage: (data) => {
-      drawHeaderFooterAndBorder(data.doc, data.doc.__meta);
-    },
-  });
-}
-
-// 3) Pass & Fail
-function renderPassFail(doc, startY, pass, fail) {
-  const table = (title, list) => {
-    const head = [['S/No.','Reg. Number','Name of Student','CGPA','Remarks']];
-    const body = list.map((s, i) => ([
-      i+1, s.regNo, s.fullName,
-      (s.metrics?.CGPA ?? 0).toFixed(2),
-      s.remarks || (String(s.remarks || '').toLowerCase().startsWith('repeat') ? s.remarks : 'Pass')
-    ]));
-    autoTable(doc, {
-      startY,
-      head, body,
-      margin: { left: 10, right: 10 },
-      styles: { font: 'times', fontSize: 9, cellPadding: 2, lineWidth: 0.1, textColor: [0,0,0] },
-      headStyles: { fillColor: [255,255,255], textColor: [0,0,0], fontStyle: 'bold' },
-      columnStyles: {
-        0: { cellWidth: 14, halign: 'center' },
-        1: { cellWidth: 36 },
-        2: { cellWidth: 86 },
-        3: { cellWidth: 18, halign: 'center' },
-        4: { cellWidth: 'auto' },
-      },
-      // FIX: use doc.__meta and also draw section title each page
-      didDrawPage: (data) => {
-        drawHeaderFooterAndBorder(data.doc, data.doc.__meta);
-        data.doc.setFont('times','bold');
-        data.doc.setFontSize(11);
-        data.doc.text(title, 12, 60); // label above table each page
-      },
-    });
+  const columnStyles = {
+    0: { cellWidth: 8, halign: 'left' },
+    1: { cellWidth: 40, halign: 'left' },
+    [carryOverIndex]: { cellWidth: 35, halign: 'left' },
+    [remarksIndex]: { cellWidth: 38, halign: 'left' },
   };
 
-  table('A. Pass List', pass);
-  if (fail.length) {
-    doc.addPage();
-    table('B. Fail List', fail);
+  for (let idx = profileCols.length; idx < profileCols.length + courseCols.length; idx += 1) {
+    columnStyles[idx] = { halign: 'center' };
   }
-}
+  for (let idx = carryOverIndex + 1; idx < remarksIndex; idx += 1) {
+    columnStyles[idx] = { halign: 'center' };
+  }
 
-// ---------- MAIN API ----------
+  autoTable(doc, {
+    startY: tableTopY,
+    margin: { top: tableTopY, bottom: tableBottomPadding, left: leftMargin, right: rightMargin },
+    head,
+    body: sortedStudents.map((student, index) => buildStudentRow(student, index)),
+    tableWidth: 'auto',
+    styles: {
+      font: 'times',
+      fontStyle: 'normal',
+      fontSize: 7.5,
+      textColor: [0, 0, 0],
+      cellPadding: 1,
+      overflow: 'linebreak',
+      valign: 'middle',
+      lineWidth: 0.1,
+      lineColor: [0, 0, 0],
+    },
+    headStyles: {
+      fillColor: [255, 255, 255],
+      textColor: [0, 0, 0],
+      fontStyle: 'bold',
+      fontSize: 7.5,
+      halign: 'center',
+    },
+    alternateRowStyles: { fillColor: false },
+    bodyStyles: { pageBreak: 'avoid', fontStyle: 'normal', textColor: [0, 0, 0] },
+    columnStyles,
+    rowPageBreak: 'avoid',
+    willDrawPage: () => {
+      const text = watermarkText ?? 'DRAFT';
+      if (text) {
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const supportsGraphicsState =
+          typeof doc.saveGraphicsState === 'function' && typeof doc.restoreGraphicsState === 'function';
+        if (supportsGraphicsState) doc.saveGraphicsState();
+        doc.setFont('times', 'bold');
+        doc.setFontSize(120);
+        try {
+          doc.setTextColor(0, 0, 0, 0.15);
+        } catch {
+          doc.setTextColor(200, 200, 200);
+        }
+        doc.text(text, pageWidth / 1.5, pageHeight / 1.5, {
+          angle: 45,
+          align: 'center',
+          baseline: 'middle',
+        });
+        if (supportsGraphicsState) {
+          doc.restoreGraphicsState();
+        }
+        doc.setTextColor(0, 0, 0);
+      }
+    },
+    didDrawPage: (data) => {
+      drawMainResultsHeaderFooter(data.doc, meta, formInfo, logoBase64, level);
+    },
+  });
+  return true;
+};
+
+const renderPassFailSection = ({
+  doc,
+  logoBase64,
+  meta,
+  formInfo,
+  payload,
+  students,
+}) => {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const leftMargin = 10;
+  const rightMargin = 10;
+  const headerHeight = 40;
+  const footerHeight = 20;
+
+  const getCGPA = (student) => Number(student?.metrics?.CGPA ?? 0);
+
+  const passed = [];
+  const failed = [];
+  const probation = [];
+
+  students.forEach((student) => {
+    const cgpa = getCGPA(student);
+    if (cgpa < 1.0) probation.push(student);
+    const remark = String(student?.remarks || '').toLowerCase();
+    if (remark === 'pass') passed.push(student);
+    else if (remark.startsWith('repeat')) failed.push(student);
+  });
+
+  const withdrawal = Array.isArray(payload?.withdrawalStudents) ? payload.withdrawalStudents : [];
+  const nonRegistration = Array.isArray(payload?.nonRegisteredStudents) ? payload.nonRegisteredStudents : [];
+
+  const byReg = (a, b) => String(a.regNo || '').localeCompare(String(b.regNo || ''), undefined, { numeric: true });
+  passed.sort(byReg);
+  failed.sort(byReg);
+  probation.sort(byReg);
+  withdrawal.sort(byReg);
+  nonRegistration.sort(byReg);
+
+  const drawHeaderFooter = () => {
+    doc.setFont('times', 'bold');
+    doc.setFontSize(12);
+    doc.text(
+      'JOSEPH SARWUAN TARKA UNIVERSITY, P. M. B. 2373, MAKURDI',
+      pageWidth / 2,
+      15,
+      { align: 'center' }
+    );
+
+    if (logoBase64) {
+      const logoWidth = 15;
+      const logoHeight = 15;
+      const logoX = (pageWidth - logoWidth) / 2;
+      const logoY = 18;
+      doc.addImage(logoBase64, 'JPEG', logoX, logoY, logoWidth, logoHeight);
+    }
+
+    doc.text('SUMMARY OF EXAMINATION RESULTS', pageWidth / 2, 38, { align: 'center' });
+
+    doc.setFont('times', 'bold');
+    doc.setFontSize(10);
+    doc.text(
+      `Dean of College: ${meta.dean || 'Dean'}    ………………………            Date………………………………`,
+      leftMargin,
+      doc.internal.pageSize.getHeight() - 15
+    );
+  };
+
+  const drawMetadata = () => {
+    doc.setFontSize(9);
+    doc.setFont('times', 'bold');
+
+    const leftLabelX = leftMargin;
+    const leftValueX = leftLabelX + 28;
+    const rightLabelX = pageWidth / 2 + 20;
+    const rightValueX = rightLabelX + 20;
+
+    const metaStartY = headerHeight + 10;
+    const rowGap = 7;
+
+    const leftPairs = [
+      ['College:', meta.college || 'College Not Provided'],
+      ['Department:', meta.department || 'Department Not Provided'],
+      ['Programme:', meta.programme || 'Programme Not Provided'],
+    ];
+
+    const rightPairs = [
+      ['Level:', String(formInfo.level || '')],
+      ['Semester:', Number(formInfo.semester) === 1 ? 'First' : 'Second'],
+      ['Session:', String(formInfo.session || '')],
+    ];
+
+    let y = metaStartY;
+
+    const drawPair = (xLabel, xValue, [label, value], yPos) => {
+      doc.setFont('times', 'bold');
+      doc.text(String(label), xLabel, yPos);
+      doc.setFont('times', 'normal');
+      doc.text(String(value), xValue, yPos);
+    };
+
+    for (let i = 0; i < leftPairs.length; i += 1) {
+      const yRow = y + i * rowGap;
+      drawPair(leftLabelX, leftValueX, leftPairs[i], yRow);
+      drawPair(rightLabelX, rightValueX, rightPairs[i], yRow);
+    }
+
+    return y + (leftPairs.length - 1) * rowGap;
+  };
+
+  const createTable = (title, list, mode, startY) => {
+    const headers = mode === 'nonreg'
+      ? [
+          { header: 'S/No.', dataKey: 'index' },
+          { header: 'Reg. Number', dataKey: 'regNo' },
+          { header: 'Name of Student', dataKey: 'name' },
+        ]
+      : [
+          { header: 'S/No.', dataKey: 'index' },
+          { header: 'Reg. Number', dataKey: 'regNo' },
+          { header: 'Name of Student', dataKey: 'name' },
+          { header: 'CGPA', dataKey: 'cgpa' },
+          ...(mode === 'fail'
+            ? [{ header: 'Failed Course(s)', dataKey: 'remarks' }]
+            : (mode === 'probation' || mode === 'withdrawal')
+            ? []
+            : [{ header: 'Remarks', dataKey: 'remarks' }]),
+        ];
+
+    const rows = list.map((student, idx) => {
+      const base = {
+        index: idx + 1,
+        regNo: student.regNo,
+        name: formatNameFirstComma(student.fullName),
+        cgpa: getCGPA(student).toFixed(2),
+      };
+      if (mode === 'nonreg') return base;
+      if (mode === 'fail') {
+        const codes = ((student.remarks || '').match(/[A-Z0-9-]+(?:\s*[A-Z]+)?\s*\d{3}/g) || [])
+          .map((s) => s.trim())
+          .join('\n');
+        return { ...base, remarks: codes || 'Repeat' };
+      }
+      if (mode === 'pass') {
+        return { ...base, remarks: 'Pass' };
+      }
+      if (mode === 'probation') {
+        return { ...base, remarks: student.remarks || 'Probation' };
+      }
+      if (mode === 'withdrawal') {
+        return { ...base, remarks: student.remarks || 'Withdrawal' };
+      }
+      return { ...base, remarks: student.remarks || '' };
+    });
+
+    if (!rows.length) return;
+
+    const tableHead = [headers.map((h) => h.header)];
+    const tableBody = rows.map((r) => headers.map((h) => r[h.dataKey]));
+
+    const colStyles = mode === 'nonreg'
+      ? { 0: { cellWidth: 16, halign: 'center' }, 1: { cellWidth: 40 }, 2: { cellWidth: 140 } }
+      : {
+          0: { cellWidth: 16, halign: 'center' },
+          1: { cellWidth: 40 },
+          2: { cellWidth: 80 },
+          3: { cellWidth: 20, halign: 'center' },
+          ...(mode === 'fail'
+            ? { 4: { cellWidth: 60, halign: 'left' } }
+            : mode !== 'probation' && mode !== 'withdrawal'
+            ? { 4: { cellWidth: 48, halign: 'left' } }
+            : {}),
+        };
+
+    let firstPageOfTable = true;
+
+    autoTable(doc, {
+      head: tableHead,
+      body: tableBody,
+      startY,
+      margin: {
+        left: leftMargin + 3,
+        right: rightMargin + 3,
+        top: headerHeight + 45,
+        bottom: footerHeight + 10,
+      },
+      theme: 'grid',
+      styles: {
+        font: 'times',
+        fontSize: 9,
+        cellPadding: 2,
+        overflow: 'linebreak',
+        valign: 'middle',
+        textColor: [0, 0, 0],
+        lineColor: [0, 0, 0],
+        lineWidth: 0.2,
+        minCellHeight: 6,
+      },
+      headStyles: {
+        fillColor: [255, 255, 255],
+        textColor: [0, 0, 0],
+        fontStyle: 'bold',
+        lineWidth: 0.2,
+        halign: 'left',
+      },
+      bodyStyles: {
+        textColor: [0, 0, 0],
+        lineWidth: 0.2,
+        lineColor: [0, 0, 0],
+      },
+      columnStyles: colStyles,
+      didDrawPage: () => {
+        drawHeaderFooter();
+        const metaY = drawMetadata();
+        if (!firstPageOfTable && (mode === 'pass' || mode === 'fail' || mode === 'nonreg')) {
+          doc.setFont('times', 'bold');
+          doc.setFontSize(11);
+          doc.text(`${title} continued`, leftMargin, metaY + 10);
+        }
+        firstPageOfTable = false;
+    },
+  });
+  return true;
+};
+
+  const sections = [
+    ['A. Pass List', passed, 'pass'],
+    ['B. Fail List', failed, 'fail'],
+    ['C. Probation List', probation, 'probation'],
+    ['D. Withdrawal List', withdrawal, 'withdrawal'],
+    ['E. Non-Registration List', nonRegistration, 'nonreg'],
+  ];
+
+  sections.forEach(([title, list, mode], idx) => {
+    if (idx > 0) {
+      doc.addPage('legal', 'portrait');
+    }
+    drawHeaderFooter();
+    const metaY = drawMetadata();
+    if (!list.length) {
+      doc.setFont('times', 'bold');
+      doc.setFontSize(11);
+      doc.text(`${title}: Nil`, leftMargin, metaY + 10);
+      return;
+    }
+    doc.setFont('times', 'bold');
+    doc.setFontSize(11);
+    doc.text(title, leftMargin, metaY + 10);
+    doc.setFont('times', 'normal');
+    doc.setFontSize(9);
+    if (mode === 'pass') {
+      doc.text('The following students have passed all courses registered for the semester', leftMargin, metaY + 15);
+    } else if (mode === 'fail') {
+      doc.text('The following students have failed the course(s) indicated against their names', leftMargin, metaY + 15);
+    } else if (mode === 'probation') {
+      doc.text('The following students are on probation', leftMargin, metaY + 15);
+    } else if (mode === 'withdrawal') {
+      doc.text('This student has voluntarily withdrawn from the university', leftMargin, metaY + 15);
+    } else if (mode === 'nonreg') {
+      doc.text('The following students did not register for the semester', leftMargin, metaY + 15);
+    }
+    createTable(title, list, mode, metaY + 22);
+  });
+};
 
 const useBulkResultsPDFGenerator = () => {
   const generateCombinedPDF = async (header, job) => {
-    const logoBase64 = await loadImageAsBase64(header.logoUrl);
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const sortedLevels = [...(job.levels || [])]
+      .map((l) => Number(l))
+      .filter((n) => Number.isFinite(n))
+      .sort((a, b) => a - b);
 
-    // normalize & sort levels (asc)
-    const levels = [...(job.levels || [])]
-      .map(l => Number(l))
-      .filter(n => Number.isFinite(n))
-      .sort((a,b) => a - b);
+    const logoBase64 = await loadLogoBase64(header.logoUrl || '/uam.jpeg');
 
-    // Loop levels
-    for (let li = 0; li < levels.length; li++) {
-      const level = levels[li];
+    let doc = null;
+    const beginSection = (orientation = 'landscape') => {
+      if (!doc) {
+        doc = new jsPDF({ orientation, unit: 'mm', format: 'legal' });
+      } else {
+        doc.addPage('legal', orientation);
+      }
+      return doc;
+    };
 
-      // fetch each level data
-      const payload = await job.fetcher(String(level));
-      const students = payload?.students || [];
-      const courses  = payload?.courses  || [];
-
-      // common meta per level page group
-      const meta = {
-        university: header.university,
-        address: header.address,
-        college: header.college,
-        department: header.department,
-        programme: header.programme,
+    for (const level of sortedLevels) {
+      const payload = await job.fetcher(String(level)) || {};
+      const rawStudents = Array.isArray(payload.students) ? payload.students : [];
+      const primaryCourses = Array.isArray(payload.courses) ? payload.courses : [];
+      const regsMap = buildRegistrationsMap(payload.registrationsByCourse);
+      const meta = buildLevelMeta(header, payload, job);
+      const formInfo = {
         session: job.session,
         semester: job.semester,
-        logoBase64
+        level,
       };
 
-      // Make meta accessible inside didDrawPage hooks (FIX)
-      doc.__meta = meta;
+      const approvedDocs = await fetchApprovedCoursesForTerm(job.session, job.semester, level);
+      let regularCourses = [];
+      let carryCourses = [];
 
-      // SECTION: per-level
-
-      // 1) Grade Summary
-      if (job.types.includes('summary')) {
-        // jsPDF starts with a blank page already; just draw
-        const startY = drawHeaderFooterAndBorder(doc, meta);
-        const y1 = renderLevelTitle(doc, startY, level);
-        const summaryRows = computeGradeSummaryForLevel({ students, courses });
-        renderGradeSummary(doc, y1 + 2, summaryRows);
+      if (approvedDocs.length) {
+        const split = splitCoursesByApproval(primaryCourses, approvedDocs);
+        regularCourses = split.regularCourses;
+        carryCourses = split.carryOverCourses;
+        if (Array.isArray(payload.carryOverCourses) && payload.carryOverCourses.length) {
+          carryCourses = dedupeCourses([...carryCourses, ...payload.carryOverCourses]);
+        }
+        if (Array.isArray(payload.regularCourses) && payload.regularCourses.length) {
+          regularCourses = dedupeCourses([...regularCourses, ...payload.regularCourses]);
+        }
+      } else if (Array.isArray(payload.regularCourses) && payload.regularCourses.length) {
+        regularCourses = dedupeCourses(payload.regularCourses);
+        carryCourses = dedupeCourses(Array.isArray(payload.carryOverCourses) ? payload.carryOverCourses : []);
+      } else {
+        regularCourses = dedupeCourses(primaryCourses);
+        carryCourses = dedupeCourses(Array.isArray(payload.carryOverCourses) ? payload.carryOverCourses : []);
       }
 
-      // 2) Main Result
-      if (job.types.includes('main')) {
-        doc.addPage();
-        const startY = drawHeaderFooterAndBorder(doc, meta);
-        renderLevelTitle(doc, startY, level);
-        renderMainResult(doc, startY + 6, students, courses);
+      const existingCourseKeys = new Set();
+      const registerKey = (course) => {
+        const key = normalizeCourseKey(course);
+        if (key) existingCourseKeys.add(key);
+      };
+
+      regularCourses.forEach(registerKey);
+      carryCourses.forEach(registerKey);
+
+      const extraCarryCourses = [];
+      rawStudents.forEach((student) => {
+        Object.values(student?.results || {}).forEach((result) => {
+          if (!result) return;
+          const candidateCourse = {
+            id: normalizeCourseId(
+              result.courseId ||
+              result?.course?._id ||
+              result?.course?.id
+            ) || undefined,
+            code: result.courseCode || result.code || result?.course?.code || '',
+            title: result?.course?.title || result.title || '',
+            unit: result?.course?.unit ?? result.unit ?? 0,
+            option: result?.course?.option,
+          };
+          const key = normalizeCourseKey(candidateCourse);
+          if (!key || existingCourseKeys.has(key)) {
+            return;
+          }
+          existingCourseKeys.add(key);
+          extraCarryCourses.push(candidateCourse);
+        });
+      });
+
+      if (extraCarryCourses.length) {
+        carryCourses = dedupeCourses([...carryCourses, ...extraCarryCourses]);
       }
 
-      // 3) Pass & Fail
+      regularCourses = sortCoursesByUnitThenCode(regularCourses);
+      carryCourses = sortCoursesByUnitThenCode(carryCourses);
+
+      const students = rawStudents.map((student) => {
+        const existing = String(student?.remarks || '').trim();
+        const inferred = buildRemarks(student, regularCourses, carryCourses, regsMap);
+        return existing ? { ...student, remarks: existing } : { ...student, remarks: inferred };
+      });
+
+      const gradeSummaryCourses = combineCoursesByPreference(regularCourses, carryCourses);
+      const gradeSummaryRows = computeGradeSummaryRows(students, gradeSummaryCourses, regsMap);
+
+      if (job.types.includes('summary') && gradeSummaryRows.length) {
+        beginSection('landscape');
+        renderGradeSummarySection({
+          doc,
+          logoBase64,
+          meta,
+          formInfo,
+          level,
+          courses: gradeSummaryCourses,
+          students,
+          regsMap,
+          rows: gradeSummaryRows,
+        });
+      }
+
+      if (job.types.includes('main') && students.length && regularCourses.length) {
+        beginSection('landscape');
+        renderMainResultSection({
+          doc,
+          logoBase64,
+          meta,
+          formInfo,
+          level,
+          watermarkText: payload?.watermarkText,
+          courses: regularCourses,
+          carryOverCourses: carryCourses,
+          students,
+          regsMap,
+        });
+      }
+
       if (job.types.includes('passfail')) {
-        const { pass, fail } = splitPassFail(students);
-        doc.addPage();
-        const startY = drawHeaderFooterAndBorder(doc, meta);
-        renderLevelTitle(doc, startY, level);
-        renderPassFail(doc, startY + 8, pass, fail);
-      }
-
-      // Add a small separator page between levels (optional)
-      if (li < levels.length - 1) {
-        doc.addPage();
-        const sy = drawHeaderFooterAndBorder(doc, meta);
-        doc.setFont('times','italic'); doc.setFontSize(10);
-        doc.text('— Next Level —', 12, sy);
+        beginSection('portrait');
+        renderPassFailSection({
+          doc,
+          logoBase64,
+          meta,
+          formInfo,
+          payload,
+          students,
+        });
       }
     }
 
-    const fname = `Combined_${job.session}_Sem${job.semester}_L${levels[0]}-${levels[levels.length-1]}.pdf`;
+    if (!doc) {
+      doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'legal' });
+    }
+
+    const totalPages = doc.getNumberOfPages();
+    for (let pageIndex = 1; pageIndex <= totalPages; pageIndex += 1) {
+      doc.setPage(pageIndex);
+      const width = doc.internal.pageSize.getWidth();
+      const height = doc.internal.pageSize.getHeight();
+      doc.setFont('times', 'normal');
+      doc.setFontSize(9);
+      doc.text(`${pageIndex} / ${totalPages}`, width / 2, height - 6, { align: 'center' });
+    }
+
+    const firstLevel = sortedLevels[0] ?? 'NA';
+    const lastLevel = sortedLevels[sortedLevels.length - 1] ?? firstLevel;
+    const fname = `Combined_${job.session}_Sem${job.semester}_L${firstLevel}-${lastLevel}.pdf`;
     doc.save(fname);
   };
 

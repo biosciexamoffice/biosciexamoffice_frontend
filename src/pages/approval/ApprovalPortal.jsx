@@ -396,6 +396,7 @@ const ApprovalPortal = () => {
     response,
     onSuccess,
     targetOfficerKey,
+    record: recordSnapshot,
   }) => {
     if (readOnly) {
       setActionError('Approvals are disabled while you are connected to the read-only replica.');
@@ -448,57 +449,175 @@ const ApprovalPortal = () => {
           hod: normalizeOfficer(updatedMetrics.hodApproval),
           dean: normalizeOfficer(updatedMetrics.deanApproval),
         };
-        const shouldRemove = (() => {
-          if (officer.key === 'ceo') return approvals.ceo.approved;
-          if (officer.key === 'hod') return approvals.hod.approved;
-          if (officer.key === 'dean') return approvals.dean.approved;
-          return false;
-        })();
+        const baseRecord =
+          recordSnapshot ||
+          (noteDialog.record && noteDialog.record.metricsId === metricsId ? noteDialog.record : null) ||
+          (detailDialog.item && detailDialog.item.metricsId === metricsId ? detailDialog.item : null);
+        const targetRole = targetOfficer.role;
+        const targetListLimit = targetRole === 'COLLEGE_OFFICER' ? 500 : 200;
+        const metricsIdentifier = metricsId;
+        const safeNumber = (value, fallback = 0) => {
+          if (value === null || value === undefined || value === '') {
+            return fallback;
+          }
+          const numeric = Number(value);
+          return Number.isFinite(numeric) ? numeric : fallback;
+        };
+        const mergeRecordData = (existing = {}) => {
+          const nextRecord = {
+            ...existing,
+            metricsId:
+              existing.metricsId ||
+              updatedMetrics.metrics?._id ||
+              metricsIdentifier,
+            session: updatedMetrics.session ?? existing.session ?? null,
+            semester: safeNumber(updatedMetrics.semester ?? existing.semester ?? 0, 0),
+            level: safeNumber(updatedMetrics.level ?? existing.level ?? 0, 0),
+            currentMetrics: {
+              TCC: safeNumber(updatedMetrics.currentMetrics?.TCC ?? existing.currentMetrics?.TCC ?? 0, 0),
+              TCE: safeNumber(updatedMetrics.currentMetrics?.TCE ?? existing.currentMetrics?.TCE ?? 0, 0),
+              TPE: safeNumber(updatedMetrics.currentMetrics?.TPE ?? existing.currentMetrics?.TPE ?? 0, 0),
+              GPA: safeNumber(updatedMetrics.currentMetrics?.GPA ?? existing.currentMetrics?.GPA ?? 0, 0),
+            },
+            previousMetrics: {
+              CCC: safeNumber(updatedMetrics.previousMetrics?.CCC ?? existing.previousMetrics?.CCC ?? 0, 0),
+              CCE: safeNumber(updatedMetrics.previousMetrics?.CCE ?? existing.previousMetrics?.CCE ?? 0, 0),
+              CPE: safeNumber(updatedMetrics.previousMetrics?.CPE ?? existing.previousMetrics?.CPE ?? 0, 0),
+              CGPA: safeNumber(updatedMetrics.previousMetrics?.CGPA ?? existing.previousMetrics?.CGPA ?? 0, 0),
+            },
+            cumulative: {
+              CCC: safeNumber(updatedMetrics.metrics?.CCC ?? existing.cumulative?.CCC ?? 0, 0),
+              CCE: safeNumber(updatedMetrics.metrics?.CCE ?? existing.cumulative?.CCE ?? 0, 0),
+              CPE: safeNumber(updatedMetrics.metrics?.CPE ?? existing.cumulative?.CPE ?? 0, 0),
+              CGPA: safeNumber(updatedMetrics.metrics?.CGPA ?? existing.cumulative?.CGPA ?? 0, 0),
+            },
+            approvals,
+          };
 
-        dispatch(
-          approvalApi.util.updateQueryData(
-            'getPendingApprovals',
-            { role: effectiveRole, limit: listLimit },
-            (draft) => {
-              if (!draft?.items) return;
-              const index = draft.items.findIndex((item) => item.metricsId === metricsId);
-              if (index === -1) return;
+          if (existing.department !== undefined) {
+            nextRecord.department = existing.department;
+          }
+          if (existing.college !== undefined) {
+            nextRecord.college = existing.college;
+          }
+          if (existing.courses !== undefined) {
+            nextRecord.courses = existing.courses;
+          }
 
-              if (shouldRemove) {
-                draft.items.splice(index, 1);
-                return;
+          const existingStudent = existing.student;
+          if (existingStudent || updatedMetrics.id || updatedMetrics.regNo || updatedMetrics.fullName) {
+            nextRecord.student = {
+              ...(existingStudent || {}),
+              id:
+                existingStudent?.id ||
+                existingStudent?._id ||
+                updatedMetrics.id ||
+                null,
+              regNo: updatedMetrics.regNo ?? existingStudent?.regNo ?? '',
+              fullName: updatedMetrics.fullName ?? existingStudent?.fullName ?? '',
+            };
+          }
+
+          return nextRecord;
+        };
+
+        const rolesToSync = new Map();
+        rolesToSync.set(targetRole, targetListLimit);
+        if (!rolesToSync.has(effectiveRole)) {
+          rolesToSync.set(effectiveRole, listLimit);
+        }
+
+        rolesToSync.forEach((limitValue, roleValue) => {
+          const roleOfficer = ROLE_TO_OFFICER[roleValue];
+          if (!roleOfficer) return;
+          dispatch(
+            approvalApi.util.updateQueryData(
+              'getPendingApprovals',
+              { role: roleValue, limit: limitValue },
+              (draft) => {
+                if (!draft?.items) return;
+                const index = draft.items.findIndex((item) => item.metricsId === metricsIdentifier);
+                const stageKeyForRole = roleOfficer.key;
+                const approvalForRole = approvals[stageKeyForRole] || {};
+                const removeFromPending = Boolean(approvalForRole.approved);
+
+                if (index === -1) {
+                  if (!removeFromPending && roleValue === targetRole && baseRecord) {
+                    draft.items.unshift(mergeRecordData(baseRecord));
+                    if (typeof draft.total === 'number') {
+                      draft.total += 1;
+                    }
+                  }
+                  return;
+                }
+
+                if (removeFromPending) {
+                  draft.items.splice(index, 1);
+                  if (typeof draft.total === 'number') {
+                    draft.total = Math.max(draft.total - 1, draft.items.length);
+                  }
+                  return;
+                }
+
+                draft.items[index] = mergeRecordData(draft.items[index]);
               }
+            )
+          );
+        });
 
-              const existing = draft.items[index];
-              draft.items[index] = {
-                ...existing,
-                currentMetrics: {
-                  TCC: Number(updatedMetrics.currentMetrics?.TCC ?? existing.currentMetrics?.TCC ?? 0),
-                  TCE: Number(updatedMetrics.currentMetrics?.TCE ?? existing.currentMetrics?.TCE ?? 0),
-                  TPE: Number(updatedMetrics.currentMetrics?.TPE ?? existing.currentMetrics?.TPE ?? 0),
-                  GPA: Number(updatedMetrics.currentMetrics?.GPA ?? existing.currentMetrics?.GPA ?? 0),
-                },
-                previousMetrics: {
-                  CCC: Number(updatedMetrics.previousMetrics?.CCC ?? existing.previousMetrics?.CCC ?? 0),
-                  CCE: Number(updatedMetrics.previousMetrics?.CCE ?? existing.previousMetrics?.CCE ?? 0),
-                  CPE: Number(updatedMetrics.previousMetrics?.CPE ?? existing.previousMetrics?.CPE ?? 0),
-                  CGPA: Number(updatedMetrics.previousMetrics?.CGPA ?? existing.previousMetrics?.CGPA ?? 0),
-                },
-                cumulative: {
-                  CCC: Number(updatedMetrics.metrics?.CCC ?? existing.cumulative?.CCC ?? 0),
-                  CCE: Number(updatedMetrics.metrics?.CCE ?? existing.cumulative?.CCE ?? 0),
-                  CPE: Number(updatedMetrics.metrics?.CPE ?? existing.cumulative?.CPE ?? 0),
-                  CGPA: Number(updatedMetrics.metrics?.CGPA ?? existing.cumulative?.CGPA ?? 0),
-                },
-                approvals,
-              };
-            }
-          )
-        );
+        const computeStatusFlags = (approvalEntry) => {
+          const responseValue = String(approvalEntry.response || '').trim();
+          return {
+            approved: Boolean(approvalEntry.approved),
+            flagged: Boolean(approvalEntry.flagged),
+            responded: Boolean(responseValue) && !approvalEntry.flagged,
+            all: Boolean(approvalEntry.approved || approvalEntry.flagged || responseValue),
+          };
+        };
+
+        const stageApproval = approvals[targetOfficer.key] || {};
+        const statusFlags = computeStatusFlags(stageApproval);
+
+        Object.entries(statusFlags).forEach(([statusKey, shouldInclude]) => {
+          dispatch(
+            approvalApi.util.updateQueryData(
+              'getProcessedApprovals',
+              { role: targetRole, status: statusKey, limit: targetListLimit },
+              (draft) => {
+                if (!draft?.items) return;
+                const index = draft.items.findIndex((item) => item.metricsId === metricsIdentifier);
+
+                if (shouldInclude) {
+                  if (index === -1) {
+                    const source = baseRecord || {};
+                    draft.items.unshift(mergeRecordData(source));
+                    if (typeof draft.total === 'number') {
+                      draft.total += 1;
+                    }
+                    return;
+                  }
+                  draft.items[index] = mergeRecordData(draft.items[index]);
+                  return;
+                }
+
+                if (index !== -1) {
+                  draft.items.splice(index, 1);
+                  if (typeof draft.total === 'number') {
+                    draft.total = Math.max(draft.total - 1, draft.items.length);
+                  }
+                }
+              }
+            )
+          );
+        });
+
+        if (detailDialog.open && detailDialog.item?.metricsId === metricsIdentifier) {
+          setDetailDialog((prev) => ({
+            ...prev,
+            item: mergeRecordData(prev.item || baseRecord || {}),
+          }));
+        }
       }
-      const pendingTag = { type: 'Approval', role: `${effectiveRole}-${listLimit}` };
-      const processedTag = { type: 'Approval', role: `${effectiveRole}-${processedStatus}-${listLimit}` };
-      dispatch(approvalApi.util.invalidateTags([pendingTag, processedTag]));
       if (typeof onSuccess === 'function') {
         onSuccess();
       }
@@ -519,6 +638,7 @@ const ApprovalPortal = () => {
       metricsId: record.metricsId,
       approved: true,
       onSuccess: options.onSuccess,
+      record,
     });
   };
 
@@ -594,6 +714,7 @@ const ApprovalPortal = () => {
         note: trimmedNote,
         targetOfficerKey: targetKey || officer.key,
         onSuccess: closeDialogs,
+        record: noteDialog.record,
       });
       return;
     }
@@ -609,6 +730,7 @@ const ApprovalPortal = () => {
         response: trimmedNote,
         targetOfficerKey: targetKey || officer.key,
         onSuccess: closeDialogs,
+        record: noteDialog.record,
       });
       return;
     }
@@ -621,6 +743,7 @@ const ApprovalPortal = () => {
         note: trimmedNote || undefined,
         targetOfficerKey: targetKey || officer.key,
         onSuccess: closeDialogs,
+        record: noteDialog.record,
       });
     }
   };
@@ -1265,7 +1388,7 @@ const ApprovalPortal = () => {
           >
             <Box>
               <Typography variant="subtitle1" fontWeight={600}>
-                {officer.label} Identity
+                {officer.label}
               </Typography>
               <Typography variant="body2" color="text.secondary">
                 These details accompany your approval trail.

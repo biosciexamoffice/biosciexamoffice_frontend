@@ -366,7 +366,7 @@ function ResultComputation() {
 
   const [fetchRegistrations] = useLazySearchCourseRegistrationsQuery();
 
-  const separateCourses = useSeparatedCourses(processedData, approvedCourses);
+  const separateCourses = useSeparatedCourses(processedData, approvedCourses, formData.level);
   const [regSetsByCourseId, setRegSetsByCourseId] = useRegistrationSets({
     isSuccess,
     processedData,
@@ -1025,9 +1025,13 @@ function ResultComputation() {
                     gradeSummary,
                     formData,
                     {
-                      subject: 'College Not Provided',
-                      department: enhancedProcessedData?.department || 'Department Not Provided',
-                      programme: enhancedProcessedData?.programme || 'Programme Not Provided',
+                      college: enhancedProcessedData?.metadata?.college || enhancedProcessedData?.college,
+                      department: enhancedProcessedData?.metadata?.department || enhancedProcessedData?.department,
+                      programme: enhancedProcessedData?.metadata?.programme || enhancedProcessedData?.programme,
+                      headOfDepartment: enhancedProcessedData?.metadata?.headOfDepartment,
+                      departmentExamOfficer: enhancedProcessedData?.metadata?.departmentExamOfficer,
+                      collegeExamOfficer: enhancedProcessedData?.metadata?.collegeExamOfficer,
+                      dean: enhancedProcessedData?.metadata?.dean,
                     },
                   );
                   setBusy(false);
